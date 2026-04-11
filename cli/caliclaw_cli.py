@@ -120,17 +120,28 @@ def cmd_restart_sync(args: argparse.Namespace) -> None:
 def cmd_skills(args: argparse.Namespace) -> None:
     import shutil
     from cli.commands.init import install_skill_deps
+    from core.config import get_settings, bundled_skills_path
 
     arg = (getattr(args, "skill_arg", "") or "").strip()
     extra = (getattr(args, "skill_extra", "") or "").strip()
 
+    settings = get_settings()
+    bundled = bundled_skills_path()
+
     from cli.commands.init import _get_available_skills
     available = _get_available_skills()
     skill_names = {n for n, _ in available}
-    config_file = _ROOT / "data" / "enabled_skills.txt"
+    config_file = settings.project_root / "data" / "enabled_skills.txt"
     enabled = set()
     if config_file.exists():
         enabled = {l.strip() for l in config_file.read_text().split("\n") if l.strip()}
+
+    def _skill_md(name: str) -> Path:
+        """Return the path to a skill's SKILL.md — user dir first, then bundled."""
+        user_path = settings.skills_dir / name / "SKILL.md"
+        if user_path.exists():
+            return user_path
+        return bundled / name / "SKILL.md"
 
     if not arg:
         print(f"{'Skill':<18} {'Status':<10} {'Description'}")
@@ -147,12 +158,13 @@ def cmd_skills(args: argparse.Namespace) -> None:
             return
         desc = input("Description: ").strip()
         instructions = input("Instructions: ").strip()
-        skill_dir = _ROOT / "skills" / name
+        skill_dir = settings.skills_dir / name
         skill_dir.mkdir(parents=True, exist_ok=True)
         (skill_dir / "SKILL.md").write_text(
             f"---\nname: {name}\ndescription: {desc}\n---\n\n{instructions}\n", encoding="utf-8",
         )
         enabled.add(name)
+        config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text("\n".join(sorted(enabled)) + "\n")
         print(f"Created: {name}")
 
@@ -160,12 +172,13 @@ def cmd_skills(args: argparse.Namespace) -> None:
         if not extra:
             print("Usage: caliclaw skills rm <name>")
             return
-        skill_dir = _ROOT / "skills" / extra
+        skill_dir = settings.skills_dir / extra
         if not skill_dir.exists():
             print(f"Skill not found: {extra}")
             return
         shutil.rmtree(skill_dir)
         enabled.discard(extra)
+        config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text("\n".join(sorted(enabled)) + "\n")
         print(f"Removed: {extra}")
 
@@ -206,7 +219,7 @@ def cmd_skills(args: argparse.Namespace) -> None:
             ui.ok(f"Installed: {extra}")
             # Apply permission side-effects
             from security.claude_permissions import parse_skill_permissions, grant_tools
-            perms = parse_skill_permissions(_ROOT / "skills" / extra / "SKILL.md")
+            perms = parse_skill_permissions(_skill_md(extra))
             if perms:
                 grant_tools(perms)
                 ui.info(f"Granted: {', '.join(perms)}")
@@ -223,11 +236,18 @@ def cmd_skills(args: argparse.Namespace) -> None:
 
     elif arg in skill_names and extra == "on":
         enabled.add(arg)
+        config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text("\n".join(sorted(enabled)) + "\n")
+        # Copy bundled skill into user's skills_dir if not there yet
+        src = bundled / arg
+        dst = settings.skills_dir / arg
+        if src.exists() and dst.resolve() != src.resolve() and not dst.exists():
+            settings.skills_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         install_skill_deps(arg)
         # Apply permission side-effects
         from security.claude_permissions import parse_skill_permissions, grant_tools
-        perms = parse_skill_permissions(_ROOT / "skills" / arg / "SKILL.md")
+        perms = parse_skill_permissions(_skill_md(arg))
         if perms:
             grant_tools(perms)
             print(f"Enabled: {arg}  (granted: {', '.join(perms)})")
@@ -236,10 +256,11 @@ def cmd_skills(args: argparse.Namespace) -> None:
 
     elif arg in skill_names and extra == "off":
         enabled.discard(arg)
+        config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text("\n".join(sorted(enabled)) + "\n")
         # Revoke permissions
         from security.claude_permissions import parse_skill_permissions, revoke_tools
-        perms = parse_skill_permissions(_ROOT / "skills" / arg / "SKILL.md")
+        perms = parse_skill_permissions(_skill_md(arg))
         if perms:
             revoke_tools(perms)
             print(f"Disabled: {arg}  (revoked: {', '.join(perms)})")
@@ -247,7 +268,7 @@ def cmd_skills(args: argparse.Namespace) -> None:
             print(f"Disabled: {arg}")
 
     elif arg in skill_names:
-        skill_md = _ROOT / "skills" / arg / "SKILL.md"
+        skill_md = _skill_md(arg)
         if skill_md.exists():
             print(skill_md.read_text(encoding="utf-8")[:1000])
         print(f"\nStatus: {'ON' if arg in enabled else 'off'}")

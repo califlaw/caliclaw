@@ -278,7 +278,9 @@ def _reforge_model(settings, ui) -> None:
 def _reforge_skills(settings, ui) -> None:
     """Toggle enabled skills."""
     import re
+    import shutil
     from security.claude_permissions import parse_skill_permissions, grant_tools, revoke_tools
+    from core.config import bundled_skills_path
 
     ui.c.print()
     ui.step(1, 1, "Skills")
@@ -290,11 +292,12 @@ def _reforge_skills(settings, ui) -> None:
             l.strip() for l in skills_config.read_text().splitlines() if l.strip()
         }
 
-    # Scan available skills
-    skills_dir = _ROOT / "skills"
+    bundled = bundled_skills_path()
     available = []
-    if skills_dir.exists():
-        for d in sorted(skills_dir.iterdir()):
+    if bundled.exists():
+        for d in sorted(bundled.iterdir()):
+            if not d.is_dir():
+                continue
             skill_file = d / "SKILL.md"
             if not skill_file.exists():
                 continue
@@ -313,18 +316,30 @@ def _reforge_skills(settings, ui) -> None:
     skills_config.parent.mkdir(parents=True, exist_ok=True)
     skills_config.write_text("\n".join(sorted(enabled_set)) + "\n")
 
+    # Sync user's skills_dir with the enabled set
+    settings.skills_dir.mkdir(parents=True, exist_ok=True)
+    for sname in enabled_set:
+        src = bundled / sname
+        dst = settings.skills_dir / sname
+        if src.exists() and dst.resolve() != src.resolve() and not dst.exists():
+            shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    for sname in currently_enabled - enabled_set:
+        dst = settings.skills_dir / sname
+        if dst.exists() and dst.resolve() != (bundled / sname).resolve():
+            shutil.rmtree(dst, ignore_errors=True)
+
     # Apply permission diffs
     newly_enabled = enabled_set - currently_enabled
     newly_disabled = currently_enabled - enabled_set
 
     for sname in newly_enabled:
-        perms = parse_skill_permissions(_ROOT / "skills" / sname / "SKILL.md")
+        perms = parse_skill_permissions(bundled / sname / "SKILL.md")
         if perms:
             grant_tools(perms)
             ui.info(f"Granted: {', '.join(perms)} (via {sname})")
 
     for sname in newly_disabled:
-        perms = parse_skill_permissions(_ROOT / "skills" / sname / "SKILL.md")
+        perms = parse_skill_permissions(bundled / sname / "SKILL.md")
         if perms:
             revoke_tools(perms)
             ui.info(f"Revoked: {', '.join(perms)} (via {sname})")

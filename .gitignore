@@ -45,6 +45,10 @@ vendor/
 # Backups
 backups/
 
+# Build artifacts
+dist/
+*.egg-info/
+
 # Cython compiled artifacts (platform-specific, built on install)
 bin/_engine.c
 bin/*.so

@@ -215,10 +215,23 @@ async def cmd_init(args: argparse.Namespace) -> None:
     skills_config.write_text("\n".join(sorted(enabled_skills)) + "\n")
     ui.ok(f"Skills: {', '.join(sorted(enabled_skills))}")
 
+    # Copy bundled skills into the user's skills dir so the agent loads them
+    import shutil
+    from core.config import bundled_skills_path
+    _bundled = bundled_skills_path()
+    settings.skills_dir.mkdir(parents=True, exist_ok=True)
+    for sname in enabled_skills:
+        src = _bundled / sname
+        if not src.exists():
+            continue
+        dst = settings.skills_dir / sname
+        if dst.resolve() != src.resolve() and not dst.exists():
+            shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+
     # Apply permission side-effects for enabled skills
     from security.claude_permissions import parse_skill_permissions, grant_tools
     for sname in enabled_skills:
-        perms = parse_skill_permissions(_ROOT / "skills" / sname / "SKILL.md")
+        perms = parse_skill_permissions(_bundled / sname / "SKILL.md")
         if perms:
             grant_tools(perms)
             ui.info(f"Granted: {', '.join(perms)} (via {sname})")
@@ -339,13 +352,16 @@ def _install_service(settings) -> None:
 
 
 def _get_available_skills() -> list[tuple[str, str]]:
-    """Scan skills/ directory and return (name, description) pairs."""
+    """Scan bundled skills and return (name, description) pairs."""
     import re
-    skills_dir = _ROOT / "skills"
+    from core.config import bundled_skills_path
+    skills_dir = bundled_skills_path()
     results = []
     if not skills_dir.exists():
         return results
     for d in sorted(skills_dir.iterdir()):
+        if not d.is_dir():
+            continue
         skill_file = d / "SKILL.md"
         if not skill_file.exists():
             continue

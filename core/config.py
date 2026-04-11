@@ -9,7 +9,7 @@ from pydantic import Field, field_validator
 
 
 def _project_root() -> Path:
-    """Resolve project root: env var > cwd > package dir."""
+    """Resolve project root: env var > cwd > source checkout > user home."""
     env = os.environ.get("CALICLAW_HOME") or os.environ.get("PROJECT_ROOT")
     if env:
         return Path(env).resolve()
@@ -17,8 +17,30 @@ def _project_root() -> Path:
     cwd = Path.cwd()
     if (cwd / ".env").exists() or (cwd / "agents").exists():
         return cwd
-    # Fallback to package directory (git clone usage)
-    return Path(__file__).resolve().parent.parent
+    # Source checkout: package sits next to agents/ dir
+    pkg_parent = Path(__file__).resolve().parent.parent
+    if (pkg_parent / "agents").exists() and (pkg_parent / "skills").exists():
+        return pkg_parent
+    # Pip install — per-user config dir in ~/.caliclaw
+    return Path.home() / ".caliclaw"
+
+
+def bundled_skills_path() -> Path:
+    """Return the path to the bundled default skills.
+
+    Works both for source clones (./skills) and pip-installed wheels
+    (site-packages/skills).
+    """
+    # Source checkout — skills are next to the package
+    src = Path(__file__).resolve().parent.parent / "skills"
+    if src.exists() and any(src.glob("*/SKILL.md")):
+        return src
+    # Pip install — skills is a subpackage
+    try:
+        import skills as _skills_pkg
+        return Path(_skills_pkg.__file__).resolve().parent
+    except ImportError:
+        return src
 
 
 def detect_system_tz() -> str:

@@ -71,18 +71,38 @@ class SoulLoader:
         return None
 
     def _load_skills(self, agent_name: str, scope: str, project: Optional[str]) -> Optional[str]:
+        from core.config import bundled_skills_path
         settings = get_settings()
         skills_parts: List[str] = []
 
-        # Global skills
-        skills_dir = settings.skills_dir
-        if skills_dir.exists():
+        # Read the enabled-skills list; if missing, load everything available
+        enabled_file = settings.project_root / "data" / "enabled_skills.txt"
+        enabled_names: Optional[set[str]] = None
+        if enabled_file.exists():
+            enabled_names = {
+                l.strip() for l in enabled_file.read_text().splitlines() if l.strip()
+            }
+
+        loaded: set[str] = set()
+
+        def _ingest(skills_dir):
+            if not skills_dir or not skills_dir.exists():
+                return
             for skill_dir in sorted(skills_dir.iterdir()):
+                if not skill_dir.is_dir() or skill_dir.name in loaded:
+                    continue
+                if enabled_names is not None and skill_dir.name not in enabled_names:
+                    continue
                 skill_file = skill_dir / "SKILL.md"
                 if skill_file.exists():
                     content = skill_file.read_text(encoding="utf-8").strip()
                     if content:
                         skills_parts.append(f"## Skill: {skill_dir.name}\n{content}")
+                        loaded.add(skill_dir.name)
+
+        # User's skills_dir wins; bundled defaults fill any gaps
+        _ingest(settings.skills_dir)
+        _ingest(bundled_skills_path())
 
         return "\n\n".join(skills_parts) if skills_parts else None
 

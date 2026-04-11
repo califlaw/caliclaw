@@ -1,6 +1,6 @@
 [project]
 name = "caliclaw"
-version = "0.1.0"
+version = "0.1.1"
 description = "Personal AI assistant that lives in Telegram. Agents with memory, souls, and autonomous loops."
 readme = "README.md"
 license = {text = "MIT"}
@@ -38,14 +38,11 @@ requires = ["setuptools>=68.0", "wheel", "Cython>=3.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["core*", "telegram*", "intelligence*", "automation*", "security*", "safety*", "media*", "monitoring*", "cli*"]
+include = ["core*", "telegram*", "intelligence*", "automation*", "security*", "safety*", "media*", "monitoring*", "cli*", "skills*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.md", "*.txt", "*.service", "*.example"]
-
-[tool.setuptools.data-files]
-"caliclaw/skills" = ["skills/*/SKILL.md"]
-"caliclaw/agents" = ["agents/**/*.md"]
+"skills" = ["*/SKILL.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
