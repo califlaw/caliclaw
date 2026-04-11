@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# caliclaw CLI entry point
+# Install: ln -sf ~/caliclaw/caliclaw ~/.local/bin/caliclaw
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+
+cd "$SCRIPT_DIR"
+exec python3 cli/caliclaw_cli.py "$@"

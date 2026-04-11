@@ -1,0 +1,53 @@
+[project]
+name = "caliclaw"
+version = "0.1.0"
+description = "Personal AI assistant that lives in Telegram. Agents with memory, souls, and autonomous loops."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+keywords = ["ai", "assistant", "telegram", "claude", "agents", "autonomous", "memory"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "aiogram>=3.4,<4.0",
+    "aiosqlite>=0.20,<1.0",
+    "cryptography>=42.0,<44.0",
+    "croniter>=2.0,<3.0",
+    "pydantic>=2.6,<3.0",
+    "pydantic-settings>=2.2,<3.0",
+    "aiohttp>=3.9,<4.0",
+    "aiofiles>=23.0,<25.0",
+    "uvicorn>=0.27,<1.0",
+    "starlette>=0.36,<1.0",
+    "watchdog>=4.0,<6.0",
+    "prompt_toolkit>=3.0,<4.0",
+    "rich>=13.0,<15.0",
+]
+
+[project.scripts]
+caliclaw = "cli.caliclaw_cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel", "Cython>=3.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["core*", "telegram*", "intelligence*", "automation*", "security*", "safety*", "media*", "monitoring*", "cli*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.md", "*.txt", "*.service", "*.example"]
+
+[tool.setuptools.data-files]
+"caliclaw/skills" = ["skills/*/SKILL.md"]
+"caliclaw/agents" = ["agents/**/*.md"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]

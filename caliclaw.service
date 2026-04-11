@@ -1,0 +1,23 @@
+[Unit]
+Description=caliclaw Personal AI Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Change USER and paths to match your setup
+User=YOURUSER
+WorkingDirectory=/home/YOURUSER/caliclaw
+ExecStart=/home/YOURUSER/caliclaw/.venv/bin/python /home/YOURUSER/caliclaw/__main__.py
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+StandardOutput=append:/home/YOURUSER/caliclaw/logs/caliclaw.log
+StandardError=append:/home/YOURUSER/caliclaw/logs/caliclaw.log
+
+[Install]
+WantedBy=multi-user.target
