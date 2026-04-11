@@ -26,6 +26,12 @@ Run from terminal: `caliclaw <command>`
 | `caliclaw model` | Show current default Claude model and available options |
 | `caliclaw model set <haiku\|sonnet\|opus>` | Persist new default in `.env`, auto-restart bot if running |
 
+### Update
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw update` | Check PyPI for a newer version and upgrade. Suggests `caliclaw restart` if the bot is running. |
+
 ### Immortal (auto-start on boot)
 
 | Command | Description |

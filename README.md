@@ -75,6 +75,8 @@ Need to change something later? Use `caliclaw reforge` to pick one component
 (credentials, profile, soul, model, or skills) and re-configure it without
 touching the rest.
 
+To stay current: `caliclaw update` checks PyPI and upgrades in place.
+
 ## Requirements
 
 - Python 3.10+

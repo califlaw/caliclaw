@@ -865,6 +865,8 @@ Commands:
     p_model = sub.add_parser("model", help="Show or set default Claude model")
     p_model.add_argument("model_action", nargs="?", default="")
     p_model.add_argument("model_value", nargs="?", default="")
+
+    sub.add_parser("update", help="Check PyPI and upgrade to the latest version")
     p_start = sub.add_parser("start", help="Start bot")
     p_start.add_argument("--debug", action="store_true")
     sub.add_parser("stop", help="Stop bot")
@@ -960,6 +962,9 @@ Commands:
         elif args.command == "model":
             from cli.commands.model import cmd_model
             asyncio.run(cmd_model(args))
+        elif args.command == "update":
+            from cli.commands.update import cmd_update
+            asyncio.run(cmd_update(args))
         elif args.command in async_map:
             asyncio.run(async_map[args.command](args))
     except (KeyboardInterrupt, EOFError):
