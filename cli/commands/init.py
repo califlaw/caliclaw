@@ -78,10 +78,17 @@ async def cmd_init(args: argparse.Namespace) -> None:
             ui.warn("No token — add TELEGRAM_BOT_TOKEN to .env later")
 
         from core.config import detect_system_tz
+        import shutil as _shutil
         tz = detect_system_tz()
 
         lines = [f"TELEGRAM_BOT_TOKEN={token}"]
         lines.append(f"TZ={tz}")
+
+        # Pin full path to claude binary so systemd can find it
+        claude_path = _shutil.which("claude")
+        if claude_path:
+            lines.append(f"CLAUDE_BINARY={claude_path}")
+
         env_file.write_text("\n".join(lines) + "\n")
 
         # Generate pairing code

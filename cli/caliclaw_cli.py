@@ -438,9 +438,22 @@ def cmd_service(args: argparse.Namespace) -> None:
 
     if action == "install":
         user = getpass.getuser()
+        home = Path.home()
         venv_python = f"{_ROOT}/.venv/bin/python"
         if not Path(venv_python).exists():
             venv_python = sys.executable
+
+        # Build PATH that includes common user-local bin dirs
+        # so systemd can find claude CLI and other tools
+        sys_path = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+        extra_dirs = [
+            f"{home}/.local/bin",
+            f"{home}/.cargo/bin",
+            "/usr/local/bin",
+        ]
+        full_path = ":".join(dict.fromkeys(
+            extra_dirs + sys_path.split(":")
+        ))
 
         service = (
             "[Unit]\n"
@@ -454,7 +467,8 @@ def cmd_service(args: argparse.Namespace) -> None:
             f"ExecStart={venv_python} {_ROOT}/__main__.py\n"
             "Restart=on-failure\n"
             "RestartSec=10\n"
-            "Environment=PYTHONUNBUFFERED=1\n"
+            f"Environment=PYTHONUNBUFFERED=1\n"
+            f'Environment="PATH={full_path}"\n'
             "TimeoutStopSec=30\n"
             "KillSignal=SIGTERM\n"
             f"StandardOutput=append:{_ROOT}/logs/caliclaw.log\n"
