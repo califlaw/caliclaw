@@ -39,6 +39,10 @@ def cmd_start_sync(args: argparse.Namespace) -> None:
         asyncio.run(cmd_init(args))
 
     pid_file = _ROOT / "data" / "caliclaw.pid"
+
+    # Kill ANY zombie __main__.py processes from previous runs
+    _kill_zombies(pid_file)
+
     if pid_file.exists():
         pid = int(pid_file.read_text().strip())
         try:
@@ -90,22 +94,73 @@ def cmd_start_sync(args: argparse.Namespace) -> None:
             ui.next_steps(["caliclaw logs       Check what went wrong"])
 
 
+def _kill_zombies(pid_file: Path) -> int:
+    """Find and kill any orphaned __main__.py processes.
+
+    Returns number of zombies killed. This prevents multiple bot instances
+    from connecting to the same Telegram token (causes message duplication
+    and stop command not working).
+    """
+    import signal
+    main_script = str(_ROOT / "__main__.py")
+    killed = 0
+
+    # Get PID from file (this is the "known" process)
+    known_pid = None
+    if pid_file.exists():
+        try:
+            known_pid = int(pid_file.read_text().strip())
+        except (ValueError, OSError):
+            pass
+
+    # Scan /proc for any __main__.py processes we own
+    try:
+        import getpass
+        me = getpass.getuser()
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            if pid == os.getpid() or pid == known_pid:
+                continue
+            try:
+                cmdline = (entry / "cmdline").read_bytes().decode(errors="replace")
+                if main_script in cmdline or ("__main__.py" in cmdline and "caliclaw" in cmdline):
+                    # Check it's our user
+                    stat = (entry / "status").read_text()
+                    if f"Uid:\t{os.getuid()}" in stat:
+                        os.kill(pid, signal.SIGKILL)
+                        killed += 1
+            except (OSError, PermissionError):
+                continue
+    except OSError:
+        pass
+
+    return killed
+
+
 def cmd_stop_sync(args: argparse.Namespace) -> None:
     import signal
     from cli.ui import ui
 
     pid_file = _ROOT / "data" / "caliclaw.pid"
-    if not pid_file.exists():
-        ui.info("Not running.")
-        return
-    pid = int(pid_file.read_text().strip())
-    try:
-        os.kill(pid, signal.SIGTERM)
-        ui.ok(f"{ui.vibe('stop')} (pid {pid})")
+
+    # Kill main process
+    if pid_file.exists():
+        pid = int(pid_file.read_text().strip())
+        try:
+            os.kill(pid, signal.SIGTERM)
+            ui.ok(f"{ui.vibe('stop')} (pid {pid})")
+        except ProcessLookupError:
+            pass
         pid_file.unlink()
-    except ProcessLookupError:
-        ui.info("Was not running.")
-        pid_file.unlink()
+    else:
+        ui.info("Not running (no pid file).")
+
+    # Kill any zombies left over from previous crashes/restarts
+    zombies = _kill_zombies(pid_file)
+    if zombies:
+        ui.info(f"Cleaned up {zombies} orphaned process(es)")
 
 
 def cmd_restart_sync(args: argparse.Namespace) -> None:
