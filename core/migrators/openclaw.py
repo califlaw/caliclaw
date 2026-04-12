@@ -80,8 +80,9 @@ class OpenclawMigrator(BaseMigrator):
         plan = MigrationPlan(source_name=self.source_name, source_path=self.source_path)
 
         if MigrationComponent.SOUL in components:
-            self._plan_agent_config(plan, conflict_strategy)
-            self._plan_workspace_soul(plan, conflict_strategy)
+            # Soul files always overwrite — migration = continuity, not merge
+            self._plan_agent_config(plan, ConflictStrategy.OVERWRITE)
+            self._plan_workspace_soul(plan, ConflictStrategy.OVERWRITE)
         if MigrationComponent.MEMORY in components:
             self._plan_sessions(plan, conflict_strategy)
             self._plan_workspace_context(plan, conflict_strategy)
@@ -223,6 +224,7 @@ class OpenclawMigrator(BaseMigrator):
         result = super().execute(plan, conflict_strategy)
         self._post_migrate_enable_skills(plan)
         self._post_migrate_summarize_sessions()
+        self._post_migrate_merge_soul()
         return result
 
     def _post_migrate_enable_skills(self, plan) -> None:
@@ -302,6 +304,39 @@ class OpenclawMigrator(BaseMigrator):
                 f"{summary}\n"
             )
             tgt.write_text(md, encoding="utf-8")
+
+    def _post_migrate_merge_soul(self) -> None:
+        """Merge openclaw AGENTS.md rules INTO caliclaw SOUL.md for seamless continuity."""
+        soul_dir = self.settings.agents_dir / "global" / "main"
+        agents_md = soul_dir / "AGENTS.md"
+        soul_md = soul_dir / "SOUL.md"
+
+        if not agents_md.exists():
+            return
+
+        agents_content = agents_md.read_text(encoding="utf-8").strip()
+
+        # Read existing SOUL.md or create minimal one
+        soul_content = ""
+        if soul_md.exists():
+            soul_content = soul_md.read_text(encoding="utf-8").strip()
+
+        # Append openclaw rules to SOUL if not already there
+        if "Imported from openclaw" not in soul_content:
+            merged = (
+                f"{soul_content}\n\n"
+                f"## Imported from openclaw\n\n"
+                f"{agents_content}\n"
+            )
+            soul_md.write_text(merged, encoding="utf-8")
+
+        # Update IDENTITY.md to reflect migration
+        identity_md = soul_dir / "IDENTITY.md"
+        if identity_md.exists():
+            identity = identity_md.read_text(encoding="utf-8")
+            if "migrated_from:" not in identity:
+                identity += f"\nmigrated_from: openclaw\n"
+                identity_md.write_text(identity, encoding="utf-8")
 
     def _migrate_db_item(self, item: MigrationItem, strategy: ConflictStrategy) -> None:
         if item.target_path and item.source_path:
