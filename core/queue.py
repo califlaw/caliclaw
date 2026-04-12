@@ -38,6 +38,11 @@ class MessageQueue:
         self._locks: Dict[str, asyncio.Lock] = {}
         self._events: Dict[str, asyncio.Event] = {}
 
+    def cancel(self, session_id: str) -> None:
+        """Cancel pending messages for a session."""
+        self._queues.pop(session_id, None)
+        self._processing[session_id] = False
+
     def _get_lock(self, session_id: str) -> asyncio.Lock:
         if session_id not in self._locks:
             self._locks[session_id] = asyncio.Lock()

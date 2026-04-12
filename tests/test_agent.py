@@ -14,7 +14,7 @@ class TestAgentConfig:
         config = AgentConfig()
         assert config.name == "main"
         assert config.model == "sonnet"
-        assert config.timeout_seconds == 300
+        assert config.timeout_seconds == 900
 
     def test_custom(self):
         config = AgentConfig(
