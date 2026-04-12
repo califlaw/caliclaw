@@ -349,6 +349,8 @@ class CaliclawBot:
 
             async def on_chunk(chunk: str) -> None:
                 nonlocal response_msg, accumulated_text, last_edit_time
+                if self._stop_requested:
+                    return
                 accumulated_text += chunk
                 now = time.time()
                 if now - last_edit_time < 2.0:
@@ -556,7 +558,10 @@ class CaliclawBot:
         try:
             while not self._stop_requested:
                 await self.bot.send_chat_action(chat_id, ChatAction.TYPING)
-                await asyncio.sleep(4)
+                for _ in range(8):
+                    if self._stop_requested:
+                        return
+                    await asyncio.sleep(0.5)
         except asyncio.CancelledError:
             pass
 
