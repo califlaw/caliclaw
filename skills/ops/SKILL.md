@@ -8,11 +8,29 @@ audience: devops
 
 Server operations like a senior. Boring infrastructure that just works.
 
+**Critical: you run without a terminal.** You cannot answer interactive prompts (passwords, y/n confirms, sudo). Always use non-interactive flags: `ssh -o BatchMode=yes`, `apt-get -y`, `sshpass` for password auth, `DEBIAN_FRONTEND=noninteractive` for apt. If a command will hang waiting for input — find the non-interactive alternative first.
+
 ### SSH
 
-- **Key auth only**, never passwords. `PasswordAuthentication no` in sshd.
+You run non-interactively — you CANNOT type passwords or answer interactive prompts. Plan accordingly.
+
+**Connecting:**
+- **Prefer SSH keys** — `ssh-keygen -t ed25519` then `ssh-copy-id user@host`. After that `ssh user@host` works without passwords.
+- If keys aren't set up yet and you need password auth: use `sshpass -p 'pass' ssh user@host`. If `sshpass` is missing, tell the user to run `sudo apt install sshpass` or set up keys.
+- NEVER try raw `ssh user@host` if it requires a password — it will hang forever because you have no terminal for input.
+- Use `-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10` to avoid interactive prompts on first connect.
+- Use `~/.ssh/config` aliases instead of typing full hosts:
+  ```
+  Host myserver
+    HostName 192.168.0.105
+    User root
+    IdentityFile ~/.ssh/id_ed25519
+  ```
+- For file transfers: `scp -r user@host:/path /local/path` or `rsync -avz`.
+
+**Security:**
 - One key per machine, not one master key everywhere.
-- Use `~/.ssh/config` aliases instead of typing full hosts.
+- For production: `PasswordAuthentication no` in sshd_config.
 - `ssh-agent` for unlocked keys, never store passphrase in plaintext.
 
 ### systemd

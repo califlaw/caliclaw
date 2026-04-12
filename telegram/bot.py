@@ -297,6 +297,9 @@ class CaliclawBot:
             lambda sid, batch: self._run_agent(chat_id, sid, batch),
         )
 
+    # Marker the agent outputs when it wants user approval before proceeding
+    _APPROVAL_MARKER = "[APPROVAL_NEEDED]"
+
     async def _run_agent(
         self, chat_id: int, session_id: str, batch: list[QueuedMessage]
     ) -> None:
@@ -343,10 +346,9 @@ class CaliclawBot:
 
             result = await self.pool.run_streaming(config, prompt, on_chunk)
 
-            # Retry once if response is empty (transient Claude flakes)
+            # Retry once if response is empty (transient flakes)
             if not result.text and not result.error:
                 logger.warning("Empty response, retrying once...")
-                # Reset session for clean retry
                 config.continue_session = False
                 config.session_id = None
                 result = await self.pool.run_streaming(config, prompt, on_chunk)
@@ -355,6 +357,15 @@ class CaliclawBot:
             final_text = result.text or accumulated_text or "No response."
             if result.error:
                 final_text = f"⚠️ Error: {result.error}\n\n{final_text}"
+
+            # ── Approval flow ──
+            # If agent output contains [APPROVAL_NEEDED], parse it and ask the user
+            # Freedom mode skips this — agent has full autonomy
+            if self._APPROVAL_MARKER in final_text and not self.settings.freedom_mode:
+                await self._handle_approval_request(
+                    chat_id, session_id, config, final_text, response_msg,
+                )
+                return
 
             await self._send_long_message(chat_id, final_text, response_msg)
 
@@ -372,6 +383,89 @@ class CaliclawBot:
             typing_task.cancel()
             logger.exception("Agent run failed: %s", e)
             await self.bot.send_message(chat_id, "⚠️ Processing error. Please try again.")
+
+    async def _handle_approval_request(
+        self,
+        chat_id: int,
+        session_id: str,
+        config: AgentConfig,
+        agent_text: str,
+        response_msg,
+    ) -> None:
+        """Parse [APPROVAL_NEEDED] from agent output, send buttons, wait, re-run."""
+        import re
+        from security.approval import ApprovalManager
+
+        # Extract action description from agent text
+        # Format: [APPROVAL_NEEDED] <description of what the agent wants to do>
+        match = re.search(
+            r'\[APPROVAL_NEEDED\]\s*(.+?)(?:\n|$)', agent_text, re.DOTALL,
+        )
+        action_desc = match.group(1).strip() if match else "execute a potentially dangerous action"
+
+        # Strip the marker from display text
+        display_text = agent_text.replace(self._APPROVAL_MARKER, "").strip()
+        if display_text:
+            await self._send_long_message(chat_id, display_text, response_msg)
+
+        # Create approval request
+        mgr = ApprovalManager(self.db)
+
+        # Send approval buttons to Telegram
+        code = mgr.generate_code()
+        approval_id = f"approval-{code}"
+        await self.db.create_approval(
+            approval_id=approval_id,
+            agent_name="main",
+            action=action_desc,
+            level="destructive",
+            reason="Agent requested user approval",
+            code=code,
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Approve", callback_data=f"approve:{code}"),
+            InlineKeyboardButton(text="❌ Deny", callback_data=f"deny:{code}"),
+        ]])
+        await self.bot.send_message(
+            chat_id,
+            f"🔐 **Approval required**\n\n`{action_desc}`\n\n"
+            f"Code: `{code}`",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+
+        # Wait for user decision (5 min timeout)
+        future: asyncio.Future[bool] = asyncio.get_event_loop().create_future()
+        mgr._pending_futures[code] = future
+
+        try:
+            approved = await asyncio.wait_for(future, timeout=300)
+        except asyncio.TimeoutError:
+            await self.db.resolve_approval(approval_id, "timeout", "system")
+            await self.bot.send_message(chat_id, "⏱ Approval timed out (5 min). Action cancelled.")
+            return
+        finally:
+            mgr._pending_futures.pop(code, None)
+
+        if not approved:
+            await self.bot.send_message(chat_id, "❌ Action denied.")
+            return
+
+        # Re-run agent with approval context
+        config.continue_session = True
+        followup_prompt = f"User approved the action: {action_desc}. Proceed now."
+        result = await self.pool.run(config, followup_prompt)
+
+        final = result.text or "Done."
+        if result.error:
+            final = f"⚠️ {result.error}\n\n{final}"
+        await self._send_long_message(chat_id, final, None)
+
+        if result.text:
+            await self.db.save_message(role="assistant", content=result.text, session_id=session_id)
+        if result.session_id:
+            await self.db.update_session(session_id, claude_session_id=result.session_id)
 
     async def _send_long_message(
         self,

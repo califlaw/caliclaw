@@ -32,6 +32,14 @@ Run from terminal: `caliclaw <command>`
 |---------|-------------|
 | `caliclaw update` | Check PyPI for a newer version and upgrade. Suggests `caliclaw restart` if the bot is running. |
 
+### Freedom (full machine control)
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw freedom` | Show freedom mode status |
+| `caliclaw freedom on` | God mode — no approval, sudo NOPASSWD, SSH keys, sshpass. Agent is the master. |
+| `caliclaw freedom off` | Restore guardrails — approval required, sudo NOPASSWD removed. |
+
 ### Immortal (auto-start on boot)
 
 | Command | Description |

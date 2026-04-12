@@ -907,6 +907,9 @@ Commands:
     p_immortal = sub.add_parser("immortal", help="Make caliclaw immortal — on/off/status")
     p_immortal.add_argument("immortal_action", nargs="?", default="")
 
+    p_freedom = sub.add_parser("freedom", help="Full machine control — on/off/status")
+    p_freedom.add_argument("freedom_action", nargs="?", default="")
+
     p_backup = sub.add_parser("backup", help="Create or list backups")
     p_backup.add_argument("backup_arg", nargs="?", default="")
 
@@ -945,6 +948,7 @@ Commands:
         "start": cmd_start_sync, "stop": cmd_stop_sync, "restart": cmd_restart_sync,
         "skills": cmd_skills, "auth": cmd_auth, "doctor": cmd_doctor, "service": cmd_service,
         "immortal": cmd_immortal,
+        "freedom": lambda a: __import__("cli.commands.freedom", fromlist=["cmd_freedom"]).cmd_freedom(a),
         "backup": cmd_backup, "comeback": cmd_comeback,
     }
     if args.command in sync_map:

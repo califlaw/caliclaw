@@ -50,6 +50,13 @@ async def _handle_approve(bot, callback, data):
     approval = await bot.db.get_pending_approval(code)
     if approval:
         await bot.db.resolve_approval(approval["id"], "approved", "telegram")
+        # Signal the waiting approval future (if any)
+        from security.approval import ApprovalManager
+        for mgr in ApprovalManager._active_instances:
+            future = mgr._pending_futures.get(code)
+            if future and not future.done():
+                future.set_result(True)
+                break
         await callback.answer("Approved!")
         if callback.message:
             await callback.message.edit_text(f"✅ Approved: {approval['action']}")
@@ -62,6 +69,13 @@ async def _handle_deny(bot, callback, data):
     approval = await bot.db.get_pending_approval(code)
     if approval:
         await bot.db.resolve_approval(approval["id"], "denied", "telegram")
+        # Signal the waiting approval future (if any)
+        from security.approval import ApprovalManager
+        for mgr in ApprovalManager._active_instances:
+            future = mgr._pending_futures.get(code)
+            if future and not future.done():
+                future.set_result(False)
+                break
         await callback.answer("Denied.")
         if callback.message:
             await callback.message.edit_text(f"❌ Denied: {approval['action']}")

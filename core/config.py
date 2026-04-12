@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     # Engine
     claude_binary: str = "claude"  # legacy alias, kept for backward compat
     claude_default_model: str = "sonnet"
+    freedom_mode: bool = False
 
     @property
     def engine_binary(self) -> str:

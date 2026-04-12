@@ -14,9 +14,19 @@ logger = logging.getLogger(__name__)
 class ApprovalManager:
     """Manages HITL approval requests via Telegram or terminal."""
 
+    # Track active instances so callback handlers can find the right future
+    _active_instances: list["ApprovalManager"] = []
+
     def __init__(self, db: Database):
         self.db = db
         self._pending_futures: dict[str, asyncio.Future] = {}
+        ApprovalManager._active_instances.append(self)
+
+    def __del__(self):
+        try:
+            ApprovalManager._active_instances.remove(self)
+        except ValueError:
+            pass
 
     def generate_code(self) -> str:
         return secrets.token_hex(2)  # 4-char hex code like "7f3a"

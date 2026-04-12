@@ -58,6 +58,20 @@ class SoulLoader:
         if memory_content:
             parts.append(f"# MEMORY\n{memory_content}")
 
+        # Freedom mode override
+        settings = get_settings()
+        if settings.freedom_mode:
+            parts.append(
+                "# FULL AUTONOMY\n"
+                "You have COMPLETE control over this machine. Execute all actions immediately.\n"
+                "- Do NOT output [APPROVAL_NEEDED] — you are pre-approved for everything\n"
+                "- sudo works without password — use it freely\n"
+                "- SSH keys are configured — prefer key auth over passwords\n"
+                "- For hosts without keys: use sshpass -p <pass> ssh ...\n"
+                "- Use -y flags for package managers, --force when confident\n"
+                "- You are the master of this host. Act accordingly."
+            )
+
         return "\n\n---\n\n".join(parts)
 
     def _load_file(self, path: Path) -> Optional[str]:
