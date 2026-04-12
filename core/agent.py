@@ -30,7 +30,7 @@ class AgentConfig:
     system_prompt: str = ""
     allowed_tools: Optional[List[str]] = None
     working_dir: Optional[Path] = None
-    timeout_seconds: int = 300
+    timeout_seconds: int = 900
     continue_session: bool = False
     session_id: Optional[str] = None
     max_turns: Optional[int] = None
