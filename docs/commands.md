@@ -1,0 +1,209 @@
+# Commands Reference
+
+Full reference for both CLI commands and Telegram commands.
+
+## CLI Commands
+
+Run from terminal: `caliclaw <command>`
+
+### Setup & Lifecycle
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw init` | First-time setup wizard (token, profile, soul, model, skills, options) |
+| `caliclaw init --force` | Wipe existing config and re-run the full wizard |
+| `caliclaw reforge` | Re-configure one component (creds / profile / soul / model / skills / all) |
+| `caliclaw start` | Start bot in background. Auto-runs `init` if not configured |
+| `caliclaw start --debug` | Start in foreground with verbose logs |
+| `caliclaw stop` | Stop running bot |
+| `caliclaw restart` | Restart bot |
+| `caliclaw chat` | Open terminal chat (TUI alternative to Telegram) |
+
+### Model
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw model` | Show current default Claude model and available options |
+| `caliclaw model set <haiku\|sonnet\|opus>` | Persist new default in `.env`, auto-restart bot if running |
+
+### Update
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw update` | Check PyPI for a newer version and upgrade. Suggests `caliclaw restart` if the bot is running. |
+
+### Freedom (full machine control)
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw freedom` | Show freedom mode status |
+| `caliclaw freedom on` | God mode — no approval, sudo NOPASSWD, SSH keys, sshpass. Agent is the master. |
+| `caliclaw freedom off` | Restore guardrails — approval required, sudo NOPASSWD removed. |
+
+### Immortal (auto-start on boot)
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw immortal` | Show status — alive/dead, immortal/mortal |
+| `caliclaw immortal on` | Make immortal — installs systemd unit, enables, starts. Survives reboots and crashes. |
+| `caliclaw immortal off` | Break the seal — stop, disable, uninstall the service. |
+
+### Status & Diagnostics
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw pulse` | System pulse — usage, agents, tasks, queue |
+| `caliclaw status` | Alias for `pulse` |
+| `caliclaw doctor` | Health check — verify all components |
+| `caliclaw logs` | Show last 50 log lines |
+| `caliclaw logs 200` | Show last N lines |
+
+### Agents & Tasks
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw agents` | List all registered agents |
+| `caliclaw tasks` | List all scheduled tasks |
+
+### Memory
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw memory` | Show all memory entries |
+| `caliclaw memory <query>` | Search memory by query |
+| `caliclaw memory flush` | Wipe all memory (with confirmation) |
+
+### Skills
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw skills` | List all installed skills with on/off status |
+| `caliclaw skills <name>` | Show skill details |
+| `caliclaw skills <name> on` | Enable skill (grants any `requires_permissions` tools) |
+| `caliclaw skills <name> off` | Disable skill (revokes tools) |
+| `caliclaw skills new` | Create new skill (interactive) |
+| `caliclaw skills rm <name>` | Remove skill |
+
+### Skills Marketplace (caliclaw-gym)
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw skills gym` | Browse community skills ranked by 👍 votes |
+| `caliclaw skills install <name>` | Install a skill from the gym |
+| `caliclaw skills publish <name>` | Show instructions to publish your local skill |
+
+Browse on the web: **<https://califlaw.github.io/caliclaw-gym/>**
+
+### Backup & Recovery
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw backup` | Create backup now |
+| `caliclaw backup list` | List existing backups |
+| `caliclaw comeback` | Restore from latest backup |
+| `caliclaw comeback <file>` | Restore from specific backup |
+
+### Approvals
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw confirm` | List pending approval requests |
+| `caliclaw confirm <code>` | Approve action by code |
+
+### Vault (Secrets)
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw vault` | List stored secrets (requires master password) |
+| `caliclaw vault init` | Initialize vault |
+| `caliclaw vault <key>` | Get secret value |
+| `caliclaw vault <key> <value>` | Set secret |
+
+### Reset
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw reset` | Interactive reset menu (radio buttons) |
+| `caliclaw reset session` | Archive active sessions |
+| `caliclaw reset agents` | Kill ephemeral agents |
+| `caliclaw reset tasks` | Pause all tasks |
+| `caliclaw reset all` | Full reset (with confirmation) |
+
+> **Note:** `reset` clears runtime state. To re-configure credentials, profile, soul,
+> model or skills, use `caliclaw reforge` instead.
+
+### Migration
+
+| Command | Description |
+|---------|-------------|
+| `caliclaw migrate <path>` | Auto-detect and migrate from another *claw project |
+| `caliclaw migrate openclaw <path>` | Explicit type |
+| `caliclaw migrate <path> --dry-run` | Preview without changes |
+| `caliclaw migrate <path> --only soul,memory` | Migrate specific components |
+
+---
+
+## Telegram Commands
+
+Send to your bot in Telegram. All commands require pairing first (`/pair <code>`).
+
+### Pairing (one-time)
+
+| Command | Description |
+|---------|-------------|
+| `/pair <code>` | Bind bot to your Telegram account |
+
+The pairing code is generated by `caliclaw init` or shown on `caliclaw start` (15 minute TTL).
+
+### Session
+
+| Command | Description |
+|---------|-------------|
+| `/fresh` | Start new session (forget current context) |
+| `/squeeze` | Compress current session context |
+| `/reset` | Interactive reset menu |
+
+### Agents
+
+| Command | Description |
+|---------|-------------|
+| `/agents` | List agents with inline kill buttons |
+| `/spawn <name> <description>` | Create new ephemeral agent |
+| `/kill <name>` | Kill agent |
+| `/promote <name> <global\|project>` | Promote ephemeral to permanent |
+
+### Tasks
+
+| Command | Description |
+|---------|-------------|
+| `/tasks` | List scheduled tasks with pause/resume buttons |
+| `/loop <description>` | Run agent in autonomous loop until done |
+| `/cron <expression> <task>` | Schedule a recurring task |
+| `/pause <id>` | Pause task |
+| `/resume <id>` | Resume task |
+
+### System
+
+| Command | Description |
+|---------|-------------|
+| `/status` | System status (model, agents, usage, queue) |
+| `/usage` | Token usage breakdown by model |
+| `/model [haiku\|sonnet\|opus]` | Switch model (with inline buttons) |
+| `/memory` | Show all memory entries |
+| `/soul` | Show soul, identity, user files |
+| `/skills` | List skills with toggle buttons |
+| `/confirm <code>` | Approve pending action |
+| `/unleash <path>` | Grant agent access to a directory |
+| `/unleash revoke` | Back to sandbox |
+| `/restart` | Restart bot ("Reload the bar") |
+| `/help` | Full command list |
+
+### Special
+
+| Input | Description |
+|-------|-------------|
+| `stop` or `стоп` | Abort all running agents and loops |
+| Any text | Sent to agent for processing |
+| Voice message | Transcribed via whisper-cpp |
+| Photo | Saved + sent with caption |
+| Document | Saved + sent with caption |
