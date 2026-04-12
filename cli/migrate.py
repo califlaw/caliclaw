@@ -32,12 +32,12 @@ import core.migrators  # noqa: F401
 ALL_COMPONENTS = list(MigrationComponent)
 
 _COMPONENT_LABELS = {
-    MigrationComponent.SOUL: "Soul (личность, правила)",
-    MigrationComponent.MEMORY: "Memory (память)",
-    MigrationComponent.SKILLS: "Skills (навыки)",
-    MigrationComponent.DB: "Database (история, сессии)",
-    MigrationComponent.CONFIG: "Config (.env настройки)",
-    MigrationComponent.MEDIA: "Media (файлы, аудио)",
+    MigrationComponent.SOUL: "Soul (personality, rules)",
+    MigrationComponent.MEMORY: "Memory (knowledge base)",
+    MigrationComponent.SKILLS: "Skills (capabilities)",
+    MigrationComponent.DB: "Database (history, sessions)",
+    MigrationComponent.CONFIG: "Config (.env settings)",
+    MigrationComponent.MEDIA: "Media (files, audio)",
 }
 
 
@@ -77,14 +77,14 @@ def cmd_migrate(args: argparse.Namespace) -> None:
     source_name, source_path = _resolve_args(args)
 
     if source_name is None:
-        print(f"Не удалось определить тип проекта в {source_path}")
-        print("Укажите тип явно: caliclaw migrate openclaw|nanoclaw|zeroclaw <путь>")
+        print(f"Could not detect project type in {source_path}")
+        print("Specify explicitly: caliclaw migrate openclaw|nanoclaw|zeroclaw <path>")
         _print_sources()
         sys.exit(1)
 
     migrator_cls = get_migrator(source_name)
     if migrator_cls is None:
-        print(f"Неизвестный тип: '{source_name}'")
+        print(f"Unknown type: '{source_name}'")
         _print_sources()
         sys.exit(1)
 
@@ -94,7 +94,7 @@ def cmd_migrate(args: argparse.Namespace) -> None:
     # Validate
     errors = migrator.validate_source()
     if errors:
-        print(f"Ошибка валидации {source_name} в {source_path}:")
+        print(f"Validation failed for {source_name} at {source_path}:")
         for e in errors:
             print(f"  - {e}")
         sys.exit(1)
@@ -103,32 +103,29 @@ def cmd_migrate(args: argparse.Namespace) -> None:
     available = migrator.discover_components()
     available_list = [c for c, v in available.items() if v]
 
-    print(f"\n  Проект: {source_name}")
-    print(f"  Путь:   {source_path}\n")
+    print(f"\n  Project: {source_name}")
+    print(f"  Path:    {source_path}\n")
 
     if not available_list:
-        print("Нечего мигрировать — проект пустой.")
+        print("Nothing to migrate — project is empty.")
         return
 
     # Show what's available
-    print("Доступно для миграции:")
+    print("Available for migration:")
     for i, comp in enumerate(available_list, 1):
         label = _COMPONENT_LABELS.get(comp, comp.value)
         print(f"  {i}. {label}")
 
     # Determine what to migrate
     if args.only:
-        # Explicit --only
         components = _parse_only(args.only, available_list)
     elif args.yes:
-        # -y = migrate everything
         components = available_list
     else:
-        # Interactive
         components = _ask_components(available_list)
 
     if not components:
-        print("\nНичего не выбрано.")
+        print("\nNothing selected.")
         return
 
     # Conflict strategy
@@ -139,7 +136,7 @@ def cmd_migrate(args: argparse.Namespace) -> None:
     _print_plan(plan)
 
     if args.dry_run:
-        print("\n[DRY RUN] Изменения не внесены.")
+        print("\n[DRY RUN] No changes made.")
         return
 
     if not plan.items:
@@ -147,24 +144,24 @@ def cmd_migrate(args: argparse.Namespace) -> None:
 
     # Confirm
     if not args.yes:
-        answer = input("\nМигрировать? (y/n): ").strip().lower()
-        if answer not in ("y", "yes", "д", "да"):
-            print("Отменено.")
+        answer = input("\nMigrate? (y/n): ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("Cancelled.")
             return
 
     # Backup
     if not args.no_backup:
-        print("Бэкап...", end=" ", flush=True)
+        print("Backing up...", end=" ", flush=True)
         backup_path = create_backup()
         print(f"ok -> {backup_path}")
 
     # Execute
-    print("Миграция...")
+    print("Migrating...")
     result = migrator.execute(plan, strategy)
 
-    print(f"\nГотово: {result.success} перенесено, {result.skipped} пропущено, {result.failed} ошибок")
+    print(f"\nDone: {result.success} migrated, {result.skipped} skipped, {result.failed} errors")
     if result.errors:
-        print("Ошибки:")
+        print("Errors:")
         for e in result.errors:
             print(f"  - {e}")
 
@@ -192,7 +189,7 @@ def _resolve_args(args: argparse.Namespace) -> tuple[Optional[str], Path]:
         # Auto-detect: caliclaw migrate ~/path
         path = Path(first).resolve()
         if not path.is_dir():
-            print(f"Директория не найдена: {path}")
+            print(f"Directory not found: {path}")
             sys.exit(1)
         source_name = detect_source(path)
         return source_name, path
@@ -225,16 +222,16 @@ def _parse_only(only_str: str, available: List[MigrationComponent]) -> List[Migr
         if part in names:
             result.append(names[part])
         else:
-            print(f"Неизвестный компонент: '{part}'. Доступны: {', '.join(names.keys())}")
+            print(f"Unknown component: '{part}'. Available: {', '.join(names.keys())}")
     return result
 
 
 def _print_plan(plan: MigrationPlan) -> None:
     if not plan.items:
-        print("\nНечего мигрировать.")
+        print("\nNothing to migrate.")
         return
 
-    print(f"\nПлан ({len(plan.items)} элементов):")
+    print(f"\nPlan ({len(plan.items)} items):")
     for item in plan.items:
         marker = " *" if item.conflict else ""
         print(f"  [{item.action:>9}] {item.description}{marker}")
@@ -248,13 +245,13 @@ def _print_plan(plan: MigrationPlan) -> None:
 
 
 def _print_help() -> None:
-    print("Миграция из другого *claw проекта в caliclaw\n")
-    print("Использование:")
-    print("  caliclaw migrate <путь>                  автоопределение типа")
-    print("  caliclaw migrate <тип> <путь>            явное указание типа")
-    print("  caliclaw migrate <путь> --dry-run        показать план")
-    print("  caliclaw migrate <путь> -y               без вопросов")
-    print("  caliclaw migrate <путь> --only soul,memory")
+    print("Migrate from another *claw project to caliclaw\n")
+    print("Usage:")
+    print("  caliclaw migrate <path>                  auto-detect type")
+    print("  caliclaw migrate <type> <path>           explicit type")
+    print("  caliclaw migrate <path> --dry-run        preview plan")
+    print("  caliclaw migrate <path> -y               no prompts")
+    print("  caliclaw migrate <path> --only soul,memory")
     print()
     _print_sources()
 
@@ -263,6 +260,6 @@ def _print_sources() -> None:
     migrators = list_migrators()
     if not migrators:
         return
-    print("Поддерживаемые проекты:")
+    print("Supported projects:")
     for name, desc in migrators.items():
         print(f"  {name:<16} {desc}")

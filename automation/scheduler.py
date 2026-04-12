@@ -117,9 +117,9 @@ class TaskScheduler:
             # Notify if configured
             if task.get("notify") and self._on_notify:
                 if result.error:
-                    msg = f"⚠️ Задача `{task_name}` провалилась:\n{result.error}"
+                    msg = f"⚠️ Task `{task_name}` failed:\n{result.error}"
                 else:
-                    msg = f"📋 Задача `{task_name}`:\n{result.text[:1000]}"
+                    msg = f"📋 Task `{task_name}`:\n{result.text[:1000]}"
                 await self._on_notify(msg)
 
             # Log usage
