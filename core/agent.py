@@ -270,6 +270,7 @@ class AgentPool:
         self._max = max_concurrent or self._settings.max_concurrent_agents
         self._semaphore = asyncio.Semaphore(self._max)
         self._active: Dict[str, AgentProcess] = {}
+        self._active_tasks: Dict[str, asyncio.Task] = {}
 
     @property
     def active_count(self) -> int:
@@ -297,13 +298,23 @@ class AgentPool:
         async with self._semaphore:
             proc = AgentProcess(config, settings=self._settings)
             self._active[agent_id] = proc
+            task = asyncio.current_task()
+            if task:
+                self._active_tasks[agent_id] = task
             try:
                 result = await proc.run_streaming(prompt, on_chunk)
                 return result
             finally:
                 self._active.pop(agent_id, None)
+                self._active_tasks.pop(agent_id, None)
 
     async def kill_all(self) -> None:
+        # Kill all subprocesses
         for agent_id, proc in list(self._active.items()):
             await proc.kill()
+        # Cancel all awaiting tasks so they stop immediately
+        for agent_id, task in list(self._active_tasks.items()):
+            if not task.done():
+                task.cancel()
         self._active.clear()
+        self._active_tasks.clear()
