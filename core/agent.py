@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -102,6 +103,7 @@ class AgentProcess:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(working_dir),
+                start_new_session=True,
             )
 
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -163,6 +165,7 @@ class AgentProcess:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(working_dir),
+                start_new_session=True,
             )
 
             full_text_parts: List[str] = []
@@ -244,12 +247,19 @@ class AgentProcess:
     async def kill(self) -> None:
         if self.process and self.process.returncode is None:
             try:
-                self.process.terminate()
-                await asyncio.sleep(2)
+                import signal
+                # Kill entire process group so child processes (tool executions) also die
+                pgid = os.getpgid(self.process.pid)
+                os.killpg(pgid, signal.SIGTERM)
+                await asyncio.sleep(1)
                 if self.process.returncode is None:
+                    os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                # Fallback: kill just the main process
+                try:
                     self.process.kill()
-            except ProcessLookupError:
-                pass
+                except ProcessLookupError:
+                    pass
 
 
 class AgentPool:
