@@ -128,7 +128,7 @@ async def _handle_skill(bot, callback, data):
     config_file.write_text("\n".join(sorted(enabled)) + "\n")
 
     # Apply permission side-effects
-    from security.claude_permissions import parse_skill_permissions, grant_tools, revoke_tools
+    from security.engine_permissions import parse_skill_permissions, grant_tools, revoke_tools
     skill_md = bot.settings.skills_dir / skill_name / "SKILL.md"
     perms = parse_skill_permissions(skill_md)
     if perms:

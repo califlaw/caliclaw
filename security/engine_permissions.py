@@ -1,4 +1,4 @@
-"""Manage Claude Code tool permissions via ~/.claude/settings.json.
+"""Manage engine tool permissions.
 
 When skills with `requires_permissions` are toggled, we update the settings.
 """
@@ -61,6 +61,27 @@ def revoke_tools(tools: List[str]) -> None:
     perms["allow"] = sorted(allowed)
     _save_settings(settings)
     logger.info("Revoked tools: %s", tools)
+
+
+# Base permissions required for caliclaw to work autonomously.
+# Without these, every bash/file operation triggers a manual approval prompt
+# in the underlying engine, which breaks non-interactive (Telegram) usage.
+_BASE_PERMISSIONS = [
+    "Bash(*)",
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+]
+
+
+def ensure_base_permissions() -> None:
+    """Grant base tool permissions if not already present."""
+    current = get_allowed_tools()
+    missing = [p for p in _BASE_PERMISSIONS if p not in current]
+    if missing:
+        grant_tools(missing)
 
 
 def parse_skill_permissions(skill_md_path: Path) -> List[str]:

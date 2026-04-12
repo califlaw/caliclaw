@@ -11,7 +11,7 @@ import pytest
 def settings_file(tmp_path, monkeypatch):
     """Use a temporary settings.json instead of real ~/.claude/settings.json."""
     fake_settings = tmp_path / "settings.json"
-    monkeypatch.setattr("security.claude_permissions._SETTINGS_PATH", fake_settings)
+    monkeypatch.setattr("security.engine_permissions._SETTINGS_PATH", fake_settings)
     return fake_settings
 
 
@@ -20,7 +20,7 @@ def test_parse_skill_permissions_inline(tmp_path):
     skill = tmp_path / "SKILL.md"
     skill.write_text("---\nname: test\nrequires_permissions: [WebSearch, WebFetch]\n---\n\nbody")
 
-    from security.claude_permissions import parse_skill_permissions
+    from security.engine_permissions import parse_skill_permissions
     perms = parse_skill_permissions(skill)
     assert perms == ["WebSearch", "WebFetch"]
 
@@ -37,7 +37,7 @@ def test_parse_skill_permissions_yaml_list(tmp_path):
         "---\n\nbody"
     )
 
-    from security.claude_permissions import parse_skill_permissions
+    from security.engine_permissions import parse_skill_permissions
     perms = parse_skill_permissions(skill)
     assert perms == ["WebSearch", "WebFetch"]
 
@@ -47,7 +47,7 @@ def test_parse_skill_no_permissions(tmp_path):
     skill = tmp_path / "SKILL.md"
     skill.write_text("---\nname: test\ndescription: hello\n---\n\nbody")
 
-    from security.claude_permissions import parse_skill_permissions
+    from security.engine_permissions import parse_skill_permissions
     perms = parse_skill_permissions(skill)
     assert perms == []
 
@@ -57,14 +57,14 @@ def test_parse_skill_no_frontmatter(tmp_path):
     skill = tmp_path / "SKILL.md"
     skill.write_text("just plain content")
 
-    from security.claude_permissions import parse_skill_permissions
+    from security.engine_permissions import parse_skill_permissions
     perms = parse_skill_permissions(skill)
     assert perms == []
 
 
 def test_grant_tools(settings_file):
     """grant_tools adds to allow list."""
-    from security.claude_permissions import grant_tools, get_allowed_tools
+    from security.engine_permissions import grant_tools, get_allowed_tools
 
     grant_tools(["WebSearch", "WebFetch"])
     assert get_allowed_tools() == {"WebSearch", "WebFetch"}
@@ -76,7 +76,7 @@ def test_grant_tools(settings_file):
 
 def test_grant_tools_idempotent(settings_file):
     """Granting same tool twice doesn't duplicate."""
-    from security.claude_permissions import grant_tools, get_allowed_tools
+    from security.engine_permissions import grant_tools, get_allowed_tools
 
     grant_tools(["WebSearch"])
     grant_tools(["WebSearch"])
@@ -85,7 +85,7 @@ def test_grant_tools_idempotent(settings_file):
 
 def test_revoke_tools(settings_file):
     """revoke_tools removes from allow list."""
-    from security.claude_permissions import grant_tools, revoke_tools, get_allowed_tools
+    from security.engine_permissions import grant_tools, revoke_tools, get_allowed_tools
 
     grant_tools(["WebSearch", "WebFetch", "Bash"])
     revoke_tools(["WebSearch", "WebFetch"])
@@ -94,7 +94,7 @@ def test_revoke_tools(settings_file):
 
 def test_revoke_nonexistent(settings_file):
     """Revoking a tool that's not granted is a no-op."""
-    from security.claude_permissions import revoke_tools, get_allowed_tools
+    from security.engine_permissions import revoke_tools, get_allowed_tools
 
     revoke_tools(["WebSearch"])
     assert get_allowed_tools() == set()
@@ -107,7 +107,7 @@ def test_grant_preserves_other_settings(settings_file):
         "voice": {"enabled": True},
     }))
 
-    from security.claude_permissions import grant_tools
+    from security.engine_permissions import grant_tools
 
     grant_tools(["WebSearch"])
 
@@ -123,7 +123,7 @@ def test_web_access_skill_exists():
     skill_path = Path(__file__).parent.parent / "skills" / "web-access" / "SKILL.md"
     assert skill_path.exists()
 
-    from security.claude_permissions import parse_skill_permissions
+    from security.engine_permissions import parse_skill_permissions
     perms = parse_skill_permissions(skill_path)
     assert "WebSearch" in perms
     assert "WebFetch" in perms

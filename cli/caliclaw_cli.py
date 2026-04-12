@@ -218,7 +218,7 @@ def cmd_skills(args: argparse.Namespace) -> None:
         if ok:
             ui.ok(f"Installed: {extra}")
             # Apply permission side-effects
-            from security.claude_permissions import parse_skill_permissions, grant_tools
+            from security.engine_permissions import parse_skill_permissions, grant_tools
             perms = parse_skill_permissions(_skill_md(extra))
             if perms:
                 grant_tools(perms)
@@ -246,7 +246,7 @@ def cmd_skills(args: argparse.Namespace) -> None:
             shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         install_skill_deps(arg)
         # Apply permission side-effects
-        from security.claude_permissions import parse_skill_permissions, grant_tools
+        from security.engine_permissions import parse_skill_permissions, grant_tools
         perms = parse_skill_permissions(_skill_md(arg))
         if perms:
             grant_tools(perms)
@@ -259,7 +259,7 @@ def cmd_skills(args: argparse.Namespace) -> None:
         config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text("\n".join(sorted(enabled)) + "\n")
         # Revoke permissions
-        from security.claude_permissions import parse_skill_permissions, revoke_tools
+        from security.engine_permissions import parse_skill_permissions, revoke_tools
         perms = parse_skill_permissions(_skill_md(arg))
         if perms:
             revoke_tools(perms)

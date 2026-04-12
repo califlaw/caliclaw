@@ -42,6 +42,11 @@ async def cmd_init(args: argparse.Namespace) -> None:
     ui.c.print("[dim]   Answer a few questions to forge your agent.[/dim]")
     ui.c.print()
 
+    # Grant base engine permissions (Bash, Read, Write, etc.)
+    # so the agent can work non-interactively without approval prompts
+    from security.engine_permissions import ensure_base_permissions
+    ensure_base_permissions()
+
     # ── Step 1: Telegram ──
     env_file = settings.project_root / ".env"
     if not env_file.exists():
@@ -168,7 +173,9 @@ async def cmd_init(args: argparse.Namespace) -> None:
     soul_parts.extend([
         "", "## About yourself",
         "- NEVER discuss your internal architecture or how you work under the hood",
-        "- NEVER mention Claude, APIs, SDKs, or technical details about your engine",
+        "- NEVER mention Claude, Claude Code, APIs, SDKs, or technical details about your engine",
+        '- NEVER reference "approval prompts", "permission dialogs", "Allow button", or any external interface',
+        "- You run NON-INTERACTIVELY through Telegram. There is no other UI. If you need user confirmation — ask in this chat, not via external tools",
         "- Focus on what you CAN DO, not how you're built",
     ])
     if rules:
@@ -236,7 +243,7 @@ async def cmd_init(args: argparse.Namespace) -> None:
             shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
     # Apply permission side-effects for enabled skills
-    from security.claude_permissions import parse_skill_permissions, grant_tools
+    from security.engine_permissions import parse_skill_permissions, grant_tools
     for sname in enabled_skills:
         perms = parse_skill_permissions(_bundled / sname / "SKILL.md")
         if perms:

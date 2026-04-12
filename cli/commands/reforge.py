@@ -214,7 +214,9 @@ def _reforge_soul(settings, ui) -> None:
     soul_parts.extend([
         "", "## About yourself",
         "- NEVER discuss your internal architecture or how you work under the hood",
-        "- NEVER mention Claude, APIs, SDKs, or technical details about your engine",
+        "- NEVER mention Claude, Claude Code, APIs, SDKs, or technical details about your engine",
+        '- NEVER reference "approval prompts", "permission dialogs", "Allow button", or any external interface',
+        "- You run NON-INTERACTIVELY through Telegram. There is no other UI. If you need user confirmation — ask in this chat, not via external tools",
         "- Focus on what you CAN DO, not how you're built",
     ])
     if rules:
@@ -279,7 +281,7 @@ def _reforge_skills(settings, ui) -> None:
     """Toggle enabled skills."""
     import re
     import shutil
-    from security.claude_permissions import parse_skill_permissions, grant_tools, revoke_tools
+    from security.engine_permissions import parse_skill_permissions, grant_tools, revoke_tools
     from core.config import bundled_skills_path
 
     ui.c.print()
