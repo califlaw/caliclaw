@@ -111,6 +111,7 @@ def register(bot: CaliclawBot) -> None:
             "/skills — list skills\n"
             "/confirm — approve action\n"
             "/unleash — grant agent access to directories\n"
+            "/freedom — full machine control on/off\n"
             "/restart — restart bot",
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -172,6 +173,56 @@ def register(bot: CaliclawBot) -> None:
             for m in ("haiku", "sonnet", "opus")
         ]])
         await message.answer(f"Current model: `{current}`", parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+
+    @router.message(Command("freedom"))
+    async def cmd_freedom(message: Message) -> None:
+        if not bot._check_allowed(message):
+            return
+        args_text = (message.text or "").split(maxsplit=1)
+        arg = args_text[1].strip().lower() if len(args_text) >= 2 else ""
+
+        if arg in ("on", "off"):
+            from cli.commands.freedom import _write_freedom_to_env
+            enabled = arg == "on"
+            _write_freedom_to_env(bot.settings.project_root, enabled)
+            bot.settings.freedom_mode = enabled
+
+            if enabled:
+                await message.answer(
+                    "🔓 **FREEDOM: ON**\n\n"
+                    "Full machine control. No approval needed.\n"
+                    "sudo works without password.\n\n"
+                    "Use `/freedom off` to restore guardrails.",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            else:
+                await message.answer(
+                    "🔒 **FREEDOM: OFF**\n\n"
+                    "Approval required for dangerous actions.\n\n"
+                    "Use `/freedom on` to unlock.",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            return
+
+        # Status
+        if bot.settings.freedom_mode:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔒 Turn OFF", callback_data="freedom:off"),
+            ]])
+            await message.answer(
+                "🔓 **FREEDOM: ON**\n☠ Full machine control — no approval, no limits",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard,
+            )
+        else:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔓 Turn ON", callback_data="freedom:on"),
+            ]])
+            await message.answer(
+                "🔒 **FREEDOM: OFF**\nAgent asks approval before dangerous actions",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard,
+            )
 
     @router.message(Command("restart"))
     async def cmd_restart(message: Message) -> None:

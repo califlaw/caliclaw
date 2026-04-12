@@ -43,6 +43,8 @@ def register(bot: CaliclawBot) -> None:
             await _handle_task(bot, callback, data)
         elif data.startswith("access:"):
             await _handle_access(bot, callback, data)
+        elif data.startswith("freedom:"):
+            await _handle_freedom(bot, callback, data)
 
 
 async def _handle_approve(bot, callback, data):
@@ -62,6 +64,24 @@ async def _handle_approve(bot, callback, data):
             await callback.message.edit_text(f"✅ Approved: {approval['action']}")
     else:
         await callback.answer("Code not found.")
+
+
+async def _handle_freedom(bot, callback, data):
+    action = data.split(":", 1)[1]
+    enabled = action == "on"
+    from cli.commands.freedom import _write_freedom_to_env
+    _write_freedom_to_env(bot.settings.project_root, enabled)
+    bot.settings.freedom_mode = enabled
+    if enabled:
+        await callback.answer("🔓 Freedom ON")
+        if callback.message:
+            await callback.message.edit_text("🔓 **FREEDOM: ON**\n☠ Full machine control — no approval, no limits",
+                                              parse_mode="Markdown")
+    else:
+        await callback.answer("🔒 Freedom OFF")
+        if callback.message:
+            await callback.message.edit_text("🔒 **FREEDOM: OFF**\nAgent asks approval before dangerous actions",
+                                              parse_mode="Markdown")
 
 
 async def _handle_deny(bot, callback, data):
