@@ -43,9 +43,11 @@ async def cmd_init(args: argparse.Namespace) -> None:
     ui.c.print()
 
     # Grant base engine permissions (Bash, Read, Write, etc.)
-    # so the agent can work non-interactively without approval prompts
     from security.engine_permissions import ensure_base_permissions
     ensure_base_permissions()
+
+    # ── Step 0: Migration ──
+    migrated = await _ask_migration(settings, ui)
 
     # ── Step 1: Telegram ──
     env_file = settings.project_root / ".env"
@@ -112,24 +114,44 @@ async def cmd_init(args: argparse.Namespace) -> None:
         ui.ok(".env exists, skipping Telegram setup")
 
     # ── Step 2: Your profile ──
-    ui.step(2, 5, "About you")
-    ui.c.print()
-    name = input("  Your name: ").strip()
-    role = input("  Your role (developer, designer, student, etc): ").strip()
-    language = input("  Language [en]: ").strip() or "en"
-
+    # Skip if migration already populated USER.md
     user_md = settings.agents_dir / "global" / "main" / "USER.md"
-    user_md.parent.mkdir(parents=True, exist_ok=True)
-    user_md.write_text(
-        f"# User Profile\n\nname: {name}\nrole: {role}\nlanguage: {language}\n",
-        encoding="utf-8",
-    )
-    ui.ok("Profile saved")
+    if migrated and user_md.exists() and len(user_md.read_text().strip()) > 30:
+        ui.step(2, 5, "About you")
+        ui.ok("Imported from previous project")
+    else:
+        ui.step(2, 5, "About you")
+        ui.c.print()
+        name = input("  Your name: ").strip()
+        role = input("  Your role (developer, designer, student, etc): ").strip()
+        language = input("  Language [en]: ").strip() or "en"
+
+        user_md.parent.mkdir(parents=True, exist_ok=True)
+        user_md.write_text(
+            f"# User Profile\n\nname: {name}\nrole: {role}\nlanguage: {language}\n",
+            encoding="utf-8",
+        )
+        ui.ok("Profile saved")
 
     # ── Step 3: Assistant personality ──
-    ui.step(3, 5, "Your assistant")
-    ui.c.print()
-    assistant_name = input("  Assistant name [caliclaw]: ").strip() or "caliclaw"
+    # Skip if migration already populated SOUL.md
+    soul_md = settings.agents_dir / "global" / "main" / "SOUL.md"
+    if migrated and soul_md.exists() and len(soul_md.read_text().strip()) > 50:
+        ui.step(3, 5, "Your assistant")
+        ui.ok("Soul imported from previous project")
+        assistant_name = "caliclaw"
+        # Still ask for model
+        model = ui.radio([
+            ("sonnet", "sonnet   Balanced  (recommended)"),
+            ("opus",   "opus     Maximum reasoning, slower"),
+            ("haiku",  "haiku    Fast, cheap, light tasks"),
+        ], title="Default model", default="sonnet")
+        from cli.commands.model import _write_model_to_env
+        _write_model_to_env(settings.project_root, model)
+    else:
+        ui.step(3, 5, "Your assistant")
+        ui.c.print()
+        assistant_name = input("  Assistant name [caliclaw]: ").strip() or "caliclaw"
 
     style = ui.radio([
         ("concise and direct, no fluff", "Concise and direct"),
@@ -374,6 +396,85 @@ def _install_service(settings) -> None:
     except (subprocess.CalledProcessError, FileNotFoundError):
         ui.warn("Could not install service (need sudo)")
         ui.info(f"Manual: sudo cp {tmp} /etc/systemd/system/caliclaw.service")
+
+
+async def _ask_migration(settings, ui) -> bool:
+    """Ask if user wants to migrate from another *claw project. Returns True if migrated."""
+    from pathlib import Path
+
+    # Auto-detect common locations
+    candidates = []
+    home = Path.home()
+    for name, path in [
+        ("openclaw", home / ".openclaw"),
+        ("zeroclaw", home / ".zeroclaw"),
+        ("nanoclaw", home / ".nanoclaw"),
+    ]:
+        if path.is_dir():
+            candidates.append((name, path))
+
+    if not candidates:
+        return False
+
+    options = [("fresh", "No, fresh start")]
+    for name, path in candidates:
+        options.append((name, f"Yes, from {name} ({path})"))
+    options.append(("custom", "Yes, custom path"))
+
+    choice = ui.radio(options, title="Migrating from another project?", default="fresh")
+
+    if choice == "fresh":
+        return False
+
+    if choice == "custom":
+        path_str = input("  Path to project: ").strip()
+        if not path_str:
+            return False
+        source_path = Path(path_str).resolve()
+    else:
+        source_path = dict(candidates)[choice]
+
+    if not source_path.is_dir():
+        ui.fail(f"Directory not found: {source_path}")
+        return False
+
+    # Run migration
+    from core.migrate import detect_source, get_migrator, ConflictStrategy, MigrationComponent
+    source_name = choice if choice != "custom" else detect_source(source_path)
+    if not source_name:
+        ui.fail("Could not detect project type.")
+        return False
+
+    migrator_cls = get_migrator(source_name)
+    if not migrator_cls:
+        ui.fail(f"No migrator for: {source_name}")
+        return False
+
+    migrator = migrator_cls(source_path, settings=settings)
+    errors = migrator.validate_source()
+    if errors:
+        for e in errors:
+            ui.fail(e)
+        return False
+
+    available = migrator.discover_components()
+    available_list = [c for c, v in available.items() if v]
+    if not available_list:
+        ui.warn("Nothing to migrate — project is empty.")
+        return False
+
+    ui.info(f"Found {source_name} project with {len(available_list)} components")
+
+    with ui.spin(f"Migrating from {source_name}..."):
+        plan = migrator.plan(available_list, ConflictStrategy.OVERWRITE)
+        result = migrator.execute(plan, ConflictStrategy.OVERWRITE)
+
+    ui.ok(f"Migrated: {result.success} items from {source_name}")
+    if result.errors:
+        for e in result.errors:
+            ui.warn(e)
+
+    return result.success > 0
 
 
 def _get_available_skills() -> list[tuple[str, str]]:
