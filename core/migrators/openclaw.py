@@ -219,6 +219,90 @@ class OpenclawMigrator(BaseMigrator):
 
     # ── Execution ──
 
+    def execute(self, plan, conflict_strategy):
+        result = super().execute(plan, conflict_strategy)
+        self._post_migrate_enable_skills(plan)
+        self._post_migrate_summarize_sessions()
+        return result
+
+    def _post_migrate_enable_skills(self, plan) -> None:
+        """Add migrated skills to enabled_skills.txt."""
+        skill_names = [
+            item.description.replace("Skill: ", "")
+            for item in plan.items
+            if item.component == MigrationComponent.SKILLS and item.action != "skip"
+        ]
+        if not skill_names:
+            return
+        config_file = self.settings.project_root / "data" / "enabled_skills.txt"
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        existing = set()
+        if config_file.exists():
+            existing = {l.strip() for l in config_file.read_text().splitlines() if l.strip()}
+        existing.update(skill_names)
+        config_file.write_text("\n".join(sorted(existing)) + "\n")
+
+    def _post_migrate_summarize_sessions(self) -> None:
+        """Parse .jsonl session files and extract key facts into memory."""
+        import json as _json
+
+        conversations_dir = self.settings.workspace_dir / "conversations"
+        if not conversations_dir.is_dir():
+            return
+
+        memory_dir = self.settings.memory_dir
+        memory_dir.mkdir(parents=True, exist_ok=True)
+
+        for jsonl_file in sorted(conversations_dir.glob("*.jsonl*")):
+            slug = jsonl_file.name[:8]
+            tgt = memory_dir / f"session_{slug}.md"
+            if tgt.exists():
+                continue
+
+            # Extract assistant messages from openclaw's nested JSONL format
+            # Format: {"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"..."}]}}
+            assistant_msgs = []
+            try:
+                for line in jsonl_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = _json.loads(line)
+                    except _json.JSONDecodeError:
+                        continue
+
+                    # Handle nested openclaw format
+                    msg = entry.get("message", entry)
+                    role = msg.get("role", "")
+                    if role != "assistant":
+                        continue
+                    content = msg.get("content", "")
+                    if isinstance(content, list):
+                        # content: [{"type":"text","text":"..."}]
+                        texts = [c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"]
+                        content = " ".join(texts)
+                    if content and len(content) > 20:
+                        assistant_msgs.append(content[:500])
+            except OSError:
+                continue
+
+            if not assistant_msgs:
+                continue
+
+            # Take last 3 assistant messages as summary
+            summary = "\n\n".join(assistant_msgs[-3:])
+
+            md = (
+                f"---\n"
+                f"name: session-{slug}\n"
+                f"description: Imported session from openclaw\n"
+                f"type: project\n"
+                f"---\n\n"
+                f"{summary}\n"
+            )
+            tgt.write_text(md, encoding="utf-8")
+
     def _migrate_db_item(self, item: MigrationItem, strategy: ConflictStrategy) -> None:
         if item.target_path and item.source_path:
             if item.target_path.exists() and strategy == ConflictStrategy.SKIP:

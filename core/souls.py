@@ -8,7 +8,7 @@ from core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-SOUL_FILES = ["SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md"]
+SOUL_FILES = ["SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md", "AGENTS.md", "CONTEXT.md"]
 
 
 class SoulLoader:
@@ -122,10 +122,25 @@ class SoulLoader:
 
     def _load_memory(self) -> Optional[str]:
         settings = get_settings()
+        parts: List[str] = []
+
+        # MEMORY.md index
         memory_index = settings.memory_dir / "MEMORY.md"
         if memory_index.exists():
-            return memory_index.read_text(encoding="utf-8").strip()
-        return None
+            idx = memory_index.read_text(encoding="utf-8").strip()
+            if idx:
+                parts.append(idx)
+
+        # All individual memory entries (*.md except MEMORY.md)
+        if settings.memory_dir.exists():
+            for f in sorted(settings.memory_dir.iterdir()):
+                if f.name == "MEMORY.md" or not f.name.endswith(".md"):
+                    continue
+                content = f.read_text(encoding="utf-8").strip()
+                if content:
+                    parts.append(f"## {f.stem}\n{content}")
+
+        return "\n\n".join(parts) if parts else None
 
     def create_agent_soul(
         self,
