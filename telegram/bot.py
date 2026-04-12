@@ -322,6 +322,7 @@ class CaliclawBot:
             return
 
         typing_task = asyncio.create_task(self._keep_typing(chat_id))
+        self._typing_tasks[chat_id] = typing_task
 
         try:
             prompt = self.queue.format_batch(batch)
@@ -372,6 +373,12 @@ class CaliclawBot:
                 result = await self.pool.run_streaming(config, prompt, on_chunk)
 
             typing_task.cancel()
+            self._typing_tasks.pop(chat_id, None)
+
+            # If stop was requested while agent was running — don't send response
+            if self._stop_requested:
+                return
+
             final_text = result.text or accumulated_text or "No response."
             if result.error:
                 final_text = f"⚠️ Error: {result.error}\n\n{final_text}"
