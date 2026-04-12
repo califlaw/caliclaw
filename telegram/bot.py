@@ -221,9 +221,7 @@ class CaliclawBot:
         if typing_task:
             typing_task.cancel()
 
-        # Reset stop flag after cleanup
-        self._stop_requested = False
-
+        # DON'T reset _stop_requested here — it's reset when next message starts
         stop_detail = ", ".join(stopped) if stopped else "nothing active"
         logger.info("STOP command from %s (chat %d): %s", sender, chat_id, stop_detail)
 
@@ -319,8 +317,10 @@ class CaliclawBot:
         self, chat_id: int, session_id: str, batch: list[QueuedMessage]
     ) -> None:
         if self._stop_requested:
+            self._stop_requested = False
             return
 
+        self._stop_requested = False
         typing_task = asyncio.create_task(self._keep_typing(chat_id))
         self._typing_tasks[chat_id] = typing_task
 
