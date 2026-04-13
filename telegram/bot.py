@@ -5,6 +5,7 @@ Command and callback handlers are in telegram/handlers.py.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -411,7 +412,9 @@ class CaliclawBot:
             typing_task.cancel()
             self._typing_tasks.pop(chat_id, None)
             logger.info("Agent run cancelled (stop requested)")
-        except Exception as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError,
+                RuntimeError, ValueError, TypeError, KeyError,
+                json.JSONDecodeError, UnicodeDecodeError) as e:
             typing_task.cancel()
             self._typing_tasks.pop(chat_id, None)
             logger.exception("Agent run failed: %s", e)
@@ -420,7 +423,7 @@ class CaliclawBot:
                 hint = self._get_error_hint(error_text)
                 msg = hint if hint else f"⚠️ Error: {error_text}"
                 await self.bot.send_message(chat_id, msg)
-            except Exception:
+            except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
                 pass
 
     async def _handle_approval_request(

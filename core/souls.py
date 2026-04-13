@@ -85,11 +85,16 @@ class SoulLoader:
         return None
 
     def _load_skills(self, agent_name: str, scope: str, project: Optional[str]) -> Optional[str]:
+        """Load skill INDEX (name + description) into prompt. Full content on-demand.
+
+        Instead of injecting full SKILL.md content for every skill (~25K tokens),
+        we list skill names + descriptions (~500 tokens). The agent reads the full
+        skill file when needed via: cat skills/<name>/SKILL.md
+        """
+        import re
         from core.config import bundled_skills_path
         settings = get_settings()
-        skills_parts: List[str] = []
 
-        # Read the enabled-skills list; if missing, load everything available
         enabled_file = settings.project_root / "data" / "enabled_skills.txt"
         enabled_names: Optional[set[str]] = None
         if enabled_file.exists():
@@ -97,9 +102,10 @@ class SoulLoader:
                 l.strip() for l in enabled_file.read_text().splitlines() if l.strip()
             }
 
+        skill_index: List[str] = []
         loaded: set[str] = set()
 
-        def _ingest(skills_dir):
+        def _scan(skills_dir):
             if not skills_dir or not skills_dir.exists():
                 return
             for skill_dir in sorted(skills_dir.iterdir()):
@@ -109,36 +115,60 @@ class SoulLoader:
                     continue
                 skill_file = skill_dir / "SKILL.md"
                 if skill_file.exists():
-                    content = skill_file.read_text(encoding="utf-8").strip()
-                    if content:
-                        skills_parts.append(f"## Skill: {skill_dir.name}\n{content}")
-                        loaded.add(skill_dir.name)
+                    content = skill_file.read_text(encoding="utf-8")
+                    desc = skill_dir.name
+                    match = re.search(r"description:\s*(.+)", content)
+                    if match:
+                        desc = match.group(1).strip()
+                    skill_index.append(f"- {skill_dir.name}: {desc}")
+                    loaded.add(skill_dir.name)
 
-        # User's skills_dir wins; bundled defaults fill any gaps
-        _ingest(settings.skills_dir)
-        _ingest(bundled_skills_path())
+        _scan(settings.skills_dir)
+        _scan(bundled_skills_path())
 
-        return "\n\n".join(skills_parts) if skills_parts else None
+        if not skill_index:
+            return None
+
+        skills_path = settings.skills_dir
+        return (
+            f"## Available Skills ({len(skill_index)})\n\n"
+            + "\n".join(skill_index)
+            + f"\n\nTo use a skill, read its full content first:\n"
+            f"  cat {skills_path}/<skill-name>/SKILL.md\n"
+            f"Read the skill BEFORE acting on tasks that match it."
+        )
 
     def _load_memory(self) -> Optional[str]:
+        """Load memory INDEX into prompt. Full entries on-demand.
+
+        MEMORY.md index + list of available memory files. Agent reads
+        specific files when needed via cat. Session summaries and large
+        memory files are NOT injected into every prompt.
+        """
         settings = get_settings()
         parts: List[str] = []
 
-        # MEMORY.md index
+        # MEMORY.md index (always loaded — small)
         memory_index = settings.memory_dir / "MEMORY.md"
         if memory_index.exists():
             idx = memory_index.read_text(encoding="utf-8").strip()
             if idx:
                 parts.append(idx)
 
-        # All individual memory entries (*.md except MEMORY.md)
+        # List available memory files (names only, not content)
+        mem_files: List[str] = []
         if settings.memory_dir.exists():
             for f in sorted(settings.memory_dir.iterdir()):
                 if f.name == "MEMORY.md" or not f.name.endswith(".md"):
                     continue
-                content = f.read_text(encoding="utf-8").strip()
-                if content:
-                    parts.append(f"## {f.stem}\n{content}")
+                mem_files.append(f"- {f.stem}")
+
+        if mem_files:
+            parts.append(
+                f"## Available memory entries ({len(mem_files)})\n"
+                + "\n".join(mem_files)
+                + f"\n\nRead when needed: cat {settings.memory_dir}/<name>.md"
+            )
 
         return "\n\n".join(parts) if parts else None
 
