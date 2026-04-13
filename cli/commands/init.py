@@ -569,11 +569,18 @@ def _install_system_deps() -> None:
         vendor_dir.mkdir(exist_ok=True)
 
         if not whisper_dir.exists():
+            if not shutil.which("git"):
+                ui.warn("git not found — skipping whisper-cpp")
+                return
             with ui.spin("Cloning whisper.cpp..."):
-                result = subprocess.run(
-                    ["git", "clone", "--depth", "1", "https://github.com/ggerganov/whisper.cpp.git", str(whisper_dir)],
-                    capture_output=True, timeout=120,
-                )
+                try:
+                    result = subprocess.run(
+                        ["git", "clone", "--depth", "1", "https://github.com/ggerganov/whisper.cpp.git", str(whisper_dir)],
+                        capture_output=True, timeout=120,
+                    )
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    ui.fail("whisper-cpp: git clone failed")
+                    return
             if result.returncode != 0:
                 ui.fail("whisper-cpp: git clone failed")
                 return
@@ -581,15 +588,19 @@ def _install_system_deps() -> None:
         build_dir = whisper_dir / "build"
         build_dir.mkdir(exist_ok=True)
 
-        with ui.spin("Building whisper-cpp (1-2 min)..."):
-            result = subprocess.run(["cmake", ".."], cwd=str(build_dir), capture_output=True, timeout=60)
-            if result.returncode != 0:
-                ui.fail("cmake failed — install: sudo apt install cmake")
-                return
-            result = subprocess.run(
-                ["cmake", "--build", ".", "--config", "Release", "-j"],
-                cwd=str(build_dir), capture_output=True, timeout=300,
-            )
+        if not shutil.which("cmake"):
+            ui.warn("cmake not found — skipping whisper-cpp build")
+            ui.info("Install cmake: brew install cmake (macOS) or sudo apt install cmake (Linux)")
+        else:
+            with ui.spin("Building whisper-cpp (1-2 min)..."):
+                result = subprocess.run(["cmake", ".."], cwd=str(build_dir), capture_output=True, timeout=60)
+                if result.returncode != 0:
+                    ui.fail("cmake failed")
+                    return
+                result = subprocess.run(
+                    ["cmake", "--build", ".", "--config", "Release", "-j"],
+                    cwd=str(build_dir), capture_output=True, timeout=300,
+                )
             if result.returncode != 0:
                 ui.fail("Build failed — check build-essential")
                 return
