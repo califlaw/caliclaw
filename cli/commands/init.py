@@ -349,6 +349,7 @@ async def cmd_init(args: argparse.Namespace) -> None:
 def _install_service(settings) -> None:
     import getpass
     import os
+    import shutil
     import subprocess
     from cli.ui import ui
 
@@ -370,16 +371,16 @@ def _install_service(settings) -> None:
         "[Service]\n"
         "Type=simple\n"
         f"User={user}\n"
-        f"WorkingDirectory={_ROOT}\n"
-        f"ExecStart={venv_python} {_ROOT}/__main__.py\n"
+        f"WorkingDirectory={settings.project_root}\n"
+        f"ExecStart={shutil.which('caliclaw-daemon') or venv_python + ' ' + str(_ROOT / '__main__.py')}\n"
         "Restart=on-failure\n"
         "RestartSec=10\n"
         "Environment=PYTHONUNBUFFERED=1\n"
         f'Environment="PATH={full_path}"\n'
         "TimeoutStopSec=30\n"
         "KillSignal=SIGTERM\n"
-        f"StandardOutput=append:{_ROOT}/logs/caliclaw.log\n"
-        f"StandardError=append:{_ROOT}/logs/caliclaw.log\n\n"
+        f"StandardOutput=append:{settings.project_root}/logs/caliclaw.log\n"
+        f"StandardError=append:{settings.project_root}/logs/caliclaw.log\n\n"
         "[Install]\n"
         "WantedBy=multi-user.target\n"
     )
@@ -558,6 +559,28 @@ def _install_system_deps() -> None:
     if whisper_bin.exists():
         ui.ok("whisper-cpp (already built)")
     else:
+        # Install build tools if missing
+        if not shutil.which("cmake") or not shutil.which("git"):
+            if pkg_mgr:
+                tools = []
+                if not shutil.which("cmake"):
+                    tools.append("cmake")
+                if not shutil.which("git"):
+                    tools.append("git")
+                if pkg_mgr[0] == "apt-get":
+                    tools.extend(["build-essential"])
+                with ui.spin(f"Installing {', '.join(tools)}..."):
+                    try:
+                        subprocess.run(
+                            pkg_mgr[1] + tools,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120,
+                        )
+                    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                        ui.warn(f"Could not install {', '.join(tools)}")
+            if not shutil.which("cmake"):
+                ui.warn("cmake not found — skipping whisper-cpp build")
+                return
+
         if pkg_mgr and pkg_mgr[0] == "apt-get":
             with ui.spin("Installing build tools..."):
                 subprocess.run(

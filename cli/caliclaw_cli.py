@@ -64,11 +64,16 @@ def cmd_start_sync(args: argparse.Namespace) -> None:
 
     ui.banner_small(ui.vibe("start"))
 
-    cmd = [sys.executable, "-m", "caliclaw"]
-    # For source installs, use __main__.py directly
+    # Find the right way to start the bot daemon
+    import shutil as _sh
+    daemon_bin = _sh.which("caliclaw-daemon")
     main_py = _ROOT / "__main__.py"
     if main_py.exists():
         cmd = [sys.executable, str(main_py)]
+    elif daemon_bin:
+        cmd = [daemon_bin]
+    else:
+        cmd = [sys.executable, "-c", "from __main__ import main; main()"]
     if debug:
         cmd.append("--debug")
 
@@ -906,7 +911,8 @@ async def cmd_vault(args: argparse.Namespace) -> None:
 
 
 async def cmd_logs(args: argparse.Namespace) -> None:
-    log_file = _ROOT / "logs" / "caliclaw.log"
+    from core.config import get_settings
+    log_file = get_settings().project_root / "logs" / "caliclaw.log"
     if not log_file.exists():
         print("No logs yet.")
         return
