@@ -140,7 +140,6 @@ async def cmd_init(args: argparse.Namespace) -> None:
         ui.step(3, 5, "Your assistant")
         ui.ok("Soul imported from previous project")
         assistant_name = "caliclaw"
-        # Still ask for model
         model = ui.radio([
             ("sonnet", "sonnet   Balanced  (recommended)"),
             ("opus",   "opus     Maximum reasoning, slower"),
@@ -148,39 +147,41 @@ async def cmd_init(args: argparse.Namespace) -> None:
         ], title="Default model", default="sonnet")
         from cli.commands.model import _write_model_to_env
         _write_model_to_env(settings.project_root, model)
+        # Skip style/specialties/rules — soul already imported
+        style = "concise and direct, no fluff"
+        specialties = ""
+        rules = []
     else:
         ui.step(3, 5, "Your assistant")
         ui.c.print()
         assistant_name = input("  Assistant name [caliclaw]: ").strip() or "caliclaw"
 
-    style = ui.radio([
-        ("concise and direct, no fluff", "Concise and direct"),
-        ("friendly and casual, like a colleague", "Friendly and casual"),
-        ("formal and detailed, thorough explanations", "Formal and detailed"),
-    ], title="Communication style", default="concise and direct, no fluff")
+        style = ui.radio([
+            ("concise and direct, no fluff", "Concise and direct"),
+            ("friendly and casual, like a colleague", "Friendly and casual"),
+            ("formal and detailed, thorough explanations", "Formal and detailed"),
+        ], title="Communication style", default="concise and direct, no fluff")
 
-    model = ui.radio([
-        ("sonnet", "sonnet   Balanced  (recommended)"),
-        ("opus",   "opus     Maximum reasoning, slower"),
-        ("haiku",  "haiku    Fast, cheap, light tasks"),
-    ], title="Default model", default="sonnet")
+        model = ui.radio([
+            ("sonnet", "sonnet   Balanced  (recommended)"),
+            ("opus",   "opus     Maximum reasoning, slower"),
+            ("haiku",  "haiku    Fast, cheap, light tasks"),
+        ], title="Default model", default="sonnet")
 
-    # Persist model choice to .env
-    from cli.commands.model import _write_model_to_env
-    _write_model_to_env(settings.project_root, model)
+        from cli.commands.model import _write_model_to_env
+        _write_model_to_env(settings.project_root, model)
 
-    ui.c.print("\n  What should your assistant be good at? (comma-separated)")
-    ui.c.print("  [dim]e.g. hacking, coding, marketing, devops, automation, scraping, OSINT, shipping MVPs[/dim]")
-    specialties = input("  Specialties: ").strip()
+        ui.c.print("\n  What should your assistant be good at? (comma-separated)")
+        ui.c.print("  [dim]e.g. hacking, coding, marketing, devops, automation, scraping, OSINT, shipping MVPs[/dim]")
+        specialties = input("  Specialties: ").strip()
 
-    ui.c.print("\n  Any rules or boundaries? (one per line, empty line to finish)")
-    ui.c.print("  Examples: 'always respond in English', 'never touch production without asking'")
-    rules = []
-    while True:
-        rule = input("  Rule: ").strip()
-        if not rule:
-            break
-        rules.append(rule)
+        ui.c.print("\n  Rules or boundaries? (one per line, just press Enter to skip)")
+        rules = []
+        for _ in range(20):
+            rule = input("  Rule: ").strip()
+            if not rule:
+                break
+            rules.append(rule)
 
     # Generate SOUL.md
     soul_parts = [
