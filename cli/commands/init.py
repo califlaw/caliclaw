@@ -17,6 +17,15 @@ async def cmd_init(args: argparse.Namespace) -> None:
     settings = get_settings()
     settings.ensure_dirs()
 
+    # --force: wipe ~/.caliclaw completely for clean slate
+    if getattr(args, "force", False) and settings.project_root.exists():
+        import shutil
+        # Don't wipe if project_root is the source checkout (safety check)
+        if not (settings.project_root / "__main__.py").exists():
+            shutil.rmtree(settings.project_root, ignore_errors=True)
+            settings.ensure_dirs()
+            ui.info(f"Wiped {settings.project_root}")
+
     # Already initialized? Refuse and redirect to reforge.
     env_file = settings.project_root / ".env"
     soul_md = settings.agents_dir / "global" / "main" / "SOUL.md"

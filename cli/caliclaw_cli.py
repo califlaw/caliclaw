@@ -417,6 +417,16 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         exists = (agents_dir / sf).exists() if agents_dir.exists() else False
         (ui.ok if exists else ui.warn)(f"{sf}{'' if exists else ' missing'}")
 
+    # Auto-cleanup stale openclaw auth (causes "Credit is too low")
+    stale_auth = agents_dir / "auth-profiles.json" if agents_dir.exists() else None
+    if stale_auth and stale_auth.exists():
+        stale_auth.unlink()
+        stale_models = agents_dir / "models.json"
+        if stale_models.exists():
+            stale_models.unlink()
+        ui.warn("Removed stale openclaw auth files (auth-profiles.json, models.json)")
+        ui.info("These conflict with Claude Code subscription. Run: caliclaw restart")
+
     if all_ok:
         ui.done("All checks passed.")
     else:
