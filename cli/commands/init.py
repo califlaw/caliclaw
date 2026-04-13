@@ -69,27 +69,30 @@ async def cmd_init(args: argparse.Namespace) -> None:
         if token:
             with ui.spin("Checking token..."):
                 import aiohttp
+                import ssl
                 valid = False
                 bot_name = ""
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(
-                            f"https://api.telegram.org/bot{token}/getMe",
-                            timeout=aiohttp.ClientTimeout(total=10),
-                        ) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                if data.get("ok"):
-                                    valid = True
-                                    bot_name = data["result"].get("username", "")
-                except (aiohttp.ClientError, TimeoutError):
-                    pass
+                for use_ssl in [None, False]:
+                    try:
+                        connector = aiohttp.TCPConnector(ssl=use_ssl) if use_ssl is False else None
+                        async with aiohttp.ClientSession(connector=connector) as session:
+                            async with session.get(
+                                f"https://api.telegram.org/bot{token}/getMe",
+                                timeout=aiohttp.ClientTimeout(total=10),
+                            ) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    if data.get("ok"):
+                                        valid = True
+                                        bot_name = data["result"].get("username", "")
+                        break
+                    except (aiohttp.ClientError, TimeoutError, ssl.SSLError):
+                        continue
 
             if valid:
                 ui.ok(f"Token valid — @{bot_name}")
             else:
-                ui.fail("Token invalid or network error")
-                ui.info("You can fix it later in .env")
+                ui.warn("Could not verify token (network/SSL) — saving anyway")
         else:
             ui.warn("No token — add TELEGRAM_BOT_TOKEN to .env later")
 
