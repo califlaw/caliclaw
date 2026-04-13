@@ -335,6 +335,10 @@ async def cmd_init(args: argparse.Namespace) -> None:
     if "backup" in selected_options:
         provisioned.append(("backup", "weekly to telegram"))
 
+    # Save project root so caliclaw works from any directory
+    from core.config import save_project_root
+    save_project_root(settings.project_root)
+
     ui.boot(provisioned, version="setup complete")
     ui.next_steps([
         "caliclaw start       Start the bot",

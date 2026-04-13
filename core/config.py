@@ -8,21 +8,37 @@ from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
 
 
+_ROOT_CACHE = Path.home() / ".caliclaw" / ".project_root"
+
+
 def _project_root() -> Path:
-    """Resolve project root: env var > cwd > source checkout > user home."""
+    """Resolve project root: env var > saved path > cwd > source checkout > user home."""
     env = os.environ.get("CALICLAW_HOME") or os.environ.get("PROJECT_ROOT")
     if env:
         return Path(env).resolve()
+    # Saved from previous init (survives pip upgrades and cwd changes)
+    if _ROOT_CACHE.exists():
+        saved = Path(_ROOT_CACHE.read_text().strip())
+        if saved.exists() and (saved / ".env").exists():
+            return saved
     # If cwd has .env or agents/, we're in a caliclaw project
     cwd = Path.cwd()
     if (cwd / ".env").exists() or (cwd / "agents").exists():
         return cwd
-    # Source checkout: package sits next to agents/ dir
+    # Source checkout: package sits next to .env or agents/
     pkg_parent = Path(__file__).resolve().parent.parent
+    if (pkg_parent / ".env").exists():
+        return pkg_parent
     if (pkg_parent / "agents").exists() and (pkg_parent / "skills").exists():
         return pkg_parent
     # Pip install — per-user config dir in ~/.caliclaw
     return Path.home() / ".caliclaw"
+
+
+def save_project_root(root: Path) -> None:
+    """Persist project root so future runs find it from any cwd."""
+    _ROOT_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    _ROOT_CACHE.write_text(str(root.resolve()))
 
 
 def bundled_skills_path() -> Path:

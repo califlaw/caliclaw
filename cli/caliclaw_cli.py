@@ -40,8 +40,11 @@ def cmd_start_sync(args: argparse.Namespace) -> None:
     debug = getattr(args, "debug", False)
 
     # Auto-init if not set up yet
-    from core.config import get_settings as _gs
+    from core.config import get_settings as _gs, save_project_root, _ROOT_CACHE
     _settings = _gs()
+    # Cache project root for future runs from any directory
+    if not _ROOT_CACHE.exists() and (_settings.project_root / ".env").exists():
+        save_project_root(_settings.project_root)
     env_file = _settings.project_root / ".env"
     if not env_file.exists():
         ui.info("First run detected — running setup first")
