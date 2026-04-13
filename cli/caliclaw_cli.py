@@ -13,7 +13,8 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
-os.chdir(_ROOT)
+# DON'T chdir to _ROOT — for pip installs _ROOT is site-packages which
+# breaks _project_root() cwd detection. Keep user's cwd.
 
 # Fix macOS SSL: Python doesn't auto-use certifi's certificate bundle
 try:
