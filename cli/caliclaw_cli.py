@@ -116,17 +116,15 @@ def cmd_start_sync(args: argparse.Namespace) -> None:
 
 
 def _kill_zombies(pid_file: Path) -> int:
-    """Find and kill any orphaned __main__.py processes.
+    """Find and kill orphaned caliclaw-daemon processes.
 
-    Returns number of zombies killed. This prevents multiple bot instances
-    from connecting to the same Telegram token (causes message duplication
-    and stop command not working).
+    Works on both Linux (/proc) and macOS (pgrep). Prevents multiple bot
+    instances on the same Telegram token.
     """
     import signal
-    main_script = str(_ROOT / "__main__.py")
+    import subprocess
     killed = 0
 
-    # Get PID from file (this is the "known" process)
     known_pid = None
     if pid_file.exists():
         try:
@@ -134,28 +132,43 @@ def _kill_zombies(pid_file: Path) -> int:
         except (ValueError, OSError):
             pass
 
-    # Scan /proc for any __main__.py processes we own
+    # Use pgrep (works on Linux + macOS) to find caliclaw-daemon processes
     try:
-        import getpass
-        me = getpass.getuser()
-        for entry in Path("/proc").iterdir():
-            if not entry.name.isdigit():
-                continue
-            pid = int(entry.name)
-            if pid == os.getpid() or pid == known_pid:
-                continue
-            try:
-                cmdline = (entry / "cmdline").read_bytes().decode(errors="replace")
-                if main_script in cmdline or ("__main__.py" in cmdline and "caliclaw" in cmdline):
-                    # Check it's our user
-                    stat = (entry / "status").read_text()
-                    if f"Uid:\t{os.getuid()}" in stat:
+        result = subprocess.run(
+            ["pgrep", "-f", "caliclaw-daemon|caliclaw.*__main__"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                pid = int(line)
+                if pid == os.getpid() or pid == known_pid:
+                    continue
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    killed += 1
+                except (ProcessLookupError, PermissionError):
+                    continue
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+        # pgrep not available — try /proc (Linux only)
+        try:
+            for entry in Path("/proc").iterdir():
+                if not entry.name.isdigit():
+                    continue
+                pid = int(entry.name)
+                if pid == os.getpid() or pid == known_pid:
+                    continue
+                try:
+                    cmdline = (entry / "cmdline").read_bytes().decode(errors="replace")
+                    if "caliclaw" in cmdline and ("daemon" in cmdline or "__main__" in cmdline):
                         os.kill(pid, signal.SIGKILL)
                         killed += 1
-            except (OSError, PermissionError):
-                continue
-    except OSError:
-        pass
+                except (OSError, PermissionError):
+                    continue
+        except OSError:
+            pass
 
     return killed
 
