@@ -112,8 +112,8 @@ class Settings(BaseSettings):
     usage_stop_percent: int = 95
 
     # Heartbeat cron expressions
-    heartbeat_quick_cron: str = "*/5 * * * *"
-    heartbeat_review_cron: str = "*/30 * * * *"
+    heartbeat_quick_cron: str = "0 */2 * * *"
+    heartbeat_review_cron: str = "0 */6 * * *"
     heartbeat_morning_cron: str = "0 9 * * *"
     heartbeat_dream_cron: str = "0 3 * * *"
 
