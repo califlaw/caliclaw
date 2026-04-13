@@ -66,14 +66,15 @@ def cmd_start_sync(args: argparse.Namespace) -> None:
 
     # Find the right way to start the bot daemon
     import shutil as _sh
-    daemon_bin = _sh.which("caliclaw-daemon")
     main_py = _ROOT / "__main__.py"
+    # Look for caliclaw-daemon next to sys.executable (pip install puts both in same dir)
+    daemon_bin = _sh.which("caliclaw-daemon") or str(Path(sys.executable).parent / "caliclaw-daemon")
     if main_py.exists():
         cmd = [sys.executable, str(main_py)]
-    elif daemon_bin:
+    elif Path(daemon_bin).exists():
         cmd = [daemon_bin]
     else:
-        cmd = [sys.executable, "-c", "from __main__ import main; main()"]
+        cmd = [sys.executable, "-m", "core.daemon"]
     if debug:
         cmd.append("--debug")
 
