@@ -99,13 +99,17 @@ class OpenclawMigrator(BaseMigrator):
 
     # ── Planning ──
 
+    # Auth/credential files from openclaw that should NOT be migrated —
+    # caliclaw uses Claude Code CLI auth, not openclaw's API keys
+    _SKIP_FILES = {"auth-profiles.json", "models.json"}
+
     def _plan_agent_config(self, plan: MigrationPlan, strategy: ConflictStrategy) -> None:
         agent_dir = self.source_path / "agents" / "main" / "agent"
         if not agent_dir.is_dir():
             return
         tgt_dir = self.settings.agents_dir / "global" / "main"
         for f in sorted(agent_dir.iterdir()):
-            if f.is_file() and f.suffix == ".json":
+            if f.is_file() and f.suffix == ".json" and f.name not in self._SKIP_FILES:
                 self._plan_file(
                     plan, MigrationComponent.SOUL,
                     f, tgt_dir / f.name,

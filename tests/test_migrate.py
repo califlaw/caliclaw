@@ -66,6 +66,7 @@ class TestOpenclawMigrator:
         agent_dir.mkdir(parents=True)
         (agent_dir / "models.json").write_text('{"default": "sonnet"}')
         (agent_dir / "auth-profiles.json").write_text('{"anthropic": {"mode": "token"}}')
+        (agent_dir / "preferences.json").write_text('{"theme": "dark"}')
 
         # Sessions
         sessions_dir = root / "agents" / "main" / "sessions"
@@ -120,7 +121,11 @@ class TestOpenclawMigrator:
         soul_items = [i for i in plan.items if i.component == MigrationComponent.SOUL]
         assert len(soul_items) >= 1
         names = [i.description for i in soul_items]
-        assert any("models.json" in n for n in names)
+        # auth-profiles.json and models.json should NOT be migrated
+        assert not any("auth-profiles" in n for n in names)
+        assert not any("models.json" in n for n in names)
+        # But other config files should
+        assert any("preferences.json" in n for n in names)
 
     def test_plan_sessions(self, openclaw_project, settings):
         from core.migrators.openclaw import OpenclawMigrator
@@ -145,8 +150,11 @@ class TestOpenclawMigrator:
         result = m.execute(plan, ConflictStrategy.OVERWRITE)
         assert result.success > 0
         assert result.failed == 0
-        tgt = settings.agents_dir / "global" / "main" / "models.json"
+        # preferences.json migrated, auth files skipped
+        tgt = settings.agents_dir / "global" / "main" / "preferences.json"
         assert tgt.exists()
+        assert not (settings.agents_dir / "global" / "main" / "auth-profiles.json").exists()
+        assert not (settings.agents_dir / "global" / "main" / "models.json").exists()
 
     def test_execute_sessions(self, openclaw_project, settings):
         from core.migrators.openclaw import OpenclawMigrator

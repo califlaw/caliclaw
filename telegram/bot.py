@@ -383,7 +383,8 @@ class CaliclawBot:
 
             final_text = result.text or accumulated_text or "No response."
             if result.error:
-                final_text = f"⚠️ Error: {result.error}\n\n{final_text}"
+                hint = self._get_error_hint(result.error)
+                final_text = f"⚠️ {hint}\n\n{final_text}" if hint else f"⚠️ Error: {result.error}\n\n{final_text}"
 
             # ── Approval flow ──
             # If agent output contains [APPROVAL_NEEDED], parse it and ask the user
@@ -553,6 +554,22 @@ class CaliclawBot:
                     await self.bot.send_message(chat_id, chunk)
                 except (aiohttp.ClientError, asyncio.TimeoutError):
                     pass
+
+    _ERROR_HINTS = {
+        "credit is too low": "Subscription limit exhausted. Check claude.ai/settings or wait for reset.",
+        "credit": "Subscription credit issue. Check claude.ai/settings.",
+        "rate limit": "Rate limited. Wait a few minutes and try again.",
+        "unauthorized": "Auth expired. Run: claude login",
+        "not authenticated": "Not logged in. Run: claude login",
+        "could not connect": "Cannot reach the API. Check your internet connection.",
+    }
+
+    def _get_error_hint(self, error: str) -> str:
+        err_lower = error.lower()
+        for pattern, hint in self._ERROR_HINTS.items():
+            if pattern in err_lower:
+                return hint
+        return ""
 
     async def _keep_typing(self, chat_id: int) -> None:
         try:
