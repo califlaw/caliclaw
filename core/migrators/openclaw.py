@@ -50,11 +50,10 @@ class OpenclawMigrator(BaseMigrator):
             and any((p / "agents" / "main" / "sessions").glob("*.jsonl*"))
         )
         has_db = (p / "memory" / "main.sqlite").exists()
-        has_config = (p / "openclaw.json").exists()
-        has_credentials = (
-            (p / "credentials").is_dir()
-            and any((p / "credentials").glob("telegram-*.json"))
-        )
+        # Config/credentials intentionally NOT migrated — openclaw API keys
+        # conflict with Claude Code subscription auth
+        has_config = False
+        has_credentials = False
         has_media = (p / "media").is_dir() and any((p / "media").iterdir()) if (p / "media").is_dir() else False
         has_agent_config = (p / "agents" / "main" / "agent").is_dir()
 
@@ -188,26 +187,11 @@ class OpenclawMigrator(BaseMigrator):
         ))
 
     def _plan_config(self, plan: MigrationPlan, strategy: ConflictStrategy) -> None:
-        # openclaw.json → save as reference
-        oc_json = self.source_path / "openclaw.json"
-        if oc_json.exists():
-            tgt = self.settings.data_dir / "openclaw_config.json"
-            self._plan_file(
-                plan, MigrationComponent.CONFIG,
-                oc_json, tgt,
-                "Config: openclaw.json", strategy,
-            )
-
-        # Telegram credentials
-        creds_dir = self.source_path / "credentials"
-        if creds_dir.is_dir():
-            tgt_dir = self.settings.data_dir
-            for f in sorted(creds_dir.glob("telegram-*.json")):
-                self._plan_file(
-                    plan, MigrationComponent.CONFIG,
-                    f, tgt_dir / f.name,
-                    f"Credentials: {f.name}", strategy,
-                )
+        # DO NOT copy openclaw.json — contains API keys that conflict with
+        # Claude Code subscription auth (causes "Credit is too low").
+        # DO NOT copy credentials/*.json — caliclaw uses .env, not JSON creds.
+        # Config migration is intentionally empty for openclaw.
+        pass
 
     def _plan_media(self, plan: MigrationPlan, strategy: ConflictStrategy) -> None:
         media_dir = self.source_path / "media"

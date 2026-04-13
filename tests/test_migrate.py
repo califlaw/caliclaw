@@ -110,7 +110,7 @@ class TestOpenclawMigrator:
         assert avail[MigrationComponent.SOUL] is True
         assert avail[MigrationComponent.MEMORY] is True
         assert avail[MigrationComponent.DB] is True
-        assert avail[MigrationComponent.CONFIG] is True
+        assert avail[MigrationComponent.CONFIG] is False  # intentionally not migrated
         assert avail[MigrationComponent.MEDIA] is True
         assert avail[MigrationComponent.SKILLS] is False
 

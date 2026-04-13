@@ -417,14 +417,20 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         exists = (agents_dir / sf).exists() if agents_dir.exists() else False
         (ui.ok if exists else ui.warn)(f"{sf}{'' if exists else ' missing'}")
 
-    # Auto-cleanup stale openclaw auth (causes "Credit is too low")
-    stale_auth = agents_dir / "auth-profiles.json" if agents_dir.exists() else None
-    if stale_auth and stale_auth.exists():
-        stale_auth.unlink()
-        stale_models = agents_dir / "models.json"
-        if stale_models.exists():
-            stale_models.unlink()
-        ui.warn("Removed stale openclaw auth files (auth-profiles.json, models.json)")
+    # Auto-cleanup stale openclaw files (causes "Credit is too low")
+    stale_files = []
+    for stale_name in ["auth-profiles.json", "models.json"]:
+        f = agents_dir / stale_name
+        if agents_dir.exists() and f.exists():
+            f.unlink()
+            stale_files.append(stale_name)
+    for stale_name in ["openclaw_config.json", "telegram-default-allowFrom.json", "telegram-pairing.json"]:
+        f = settings.data_dir / stale_name
+        if f.exists():
+            f.unlink()
+            stale_files.append(stale_name)
+    if stale_files:
+        ui.warn(f"Removed stale openclaw files: {', '.join(stale_files)}")
         ui.info("These conflict with Claude Code subscription. Run: caliclaw restart")
 
     if all_ok:
