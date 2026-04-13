@@ -175,7 +175,8 @@ async def cmd_init(args: argparse.Namespace) -> None:
         ui.c.print("  [dim]e.g. hacking, coding, marketing, devops, automation, scraping, OSINT, shipping MVPs[/dim]")
         specialties = input("  Specialties: ").strip()
 
-        ui.c.print("\n  Rules or boundaries? (one per line, just press Enter to skip)")
+        ui.c.print("\n  Rules or boundaries? (one per line, Enter to skip)")
+        ui.c.print("  [dim]e.g. always respond in English, never touch production without asking[/dim]")
         rules = []
         for _ in range(20):
             rule = input("  Rule: ").strip()
