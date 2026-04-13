@@ -8,7 +8,7 @@ from core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-SOUL_FILES = ["SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md", "AGENTS.md", "CONTEXT.md"]
+SOUL_FILES = ["SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md"]
 
 
 class SoulLoader:
