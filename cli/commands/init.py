@@ -180,7 +180,14 @@ async def cmd_init(args: argparse.Namespace) -> None:
         rules_input = input("  Rules: ").strip()
         rules = [r.strip() for r in rules_input.split(",") if r.strip()] if rules_input else []
 
-    # Generate SOUL.md
+    # Generate SOUL.md (skip if migration already imported one)
+    if not (migrated and soul_md.exists() and len(soul_md.read_text().strip()) > 50):
+        _lang = language if "language" in locals() else "en"
+        _generate_soul(settings, ui, assistant_name, style, _lang, specialties, rules)
+
+
+def _generate_soul(settings, ui, assistant_name, style, language, specialties, rules):
+    """Write a fresh SOUL.md from init wizard inputs."""
     soul_parts = [
         f"You are {assistant_name}, a personal AI assistant.",
         f"You communicate through Telegram. You have full access to the system — bash, files, git, docker, etc.",
