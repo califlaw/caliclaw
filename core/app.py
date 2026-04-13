@@ -181,12 +181,54 @@ class CaliclawApp:
                     pass
         asyncio.create_task(_notify_startup())
 
+        # Check for updates periodically
+        asyncio.create_task(self._update_check_loop(notify_chat_id))
+
         await self._shutdown_event.wait()
 
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         self._remove_pid()
+
+    async def _update_check_loop(self, chat_id: int | None) -> None:
+        """Check PyPI for newer version every 6 hours, notify user once."""
+        import json
+        import urllib.request
+        import urllib.error
+
+        CHECK_INTERVAL = 6 * 3600  # 6 hours
+        notified_version: str | None = None
+
+        await asyncio.sleep(30)  # wait for bot to settle
+
+        while not self._shutting_down:
+            try:
+                from importlib.metadata import version as pkg_version
+                current = pkg_version("caliclaw")
+
+                req = urllib.request.Request(
+                    "https://pypi.org/pypi/caliclaw/json",
+                    headers={"User-Agent": f"caliclaw/{current}"},
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    latest = json.loads(resp.read())["info"]["version"]
+
+                if latest != current and latest != notified_version:
+                    cur = tuple(int(x) for x in current.split(".")[:3] if x.isdigit())
+                    lat = tuple(int(x) for x in latest.split(".")[:3] if x.isdigit())
+                    if lat > cur and chat_id and self.bot:
+                        await self.bot.send_notification(
+                            chat_id,
+                            f"📦 Update available: {current} → {latest}\n"
+                            f"Run: `caliclaw update`",
+                        )
+                        notified_version = latest
+            except (urllib.error.URLError, TimeoutError, KeyError,
+                    json.JSONDecodeError, OSError, ValueError):
+                pass
+
+            await asyncio.sleep(CHECK_INTERVAL)
 
     async def _backup_loop(self, chat_id: int | None) -> None:
         from core.backup import (
