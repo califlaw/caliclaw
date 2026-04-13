@@ -411,11 +411,17 @@ class CaliclawBot:
             typing_task.cancel()
             self._typing_tasks.pop(chat_id, None)
             logger.info("Agent run cancelled (stop requested)")
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
+        except Exception as e:
             typing_task.cancel()
             self._typing_tasks.pop(chat_id, None)
             logger.exception("Agent run failed: %s", e)
-            await self.bot.send_message(chat_id, "⚠️ Processing error. Please try again.")
+            try:
+                error_text = str(e)[:200]
+                hint = self._get_error_hint(error_text)
+                msg = hint if hint else f"⚠️ Error: {error_text}"
+                await self.bot.send_message(chat_id, msg)
+            except Exception:
+                pass
 
     async def _handle_approval_request(
         self,
