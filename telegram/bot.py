@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 import aiohttp
+import aiogram.exceptions
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ChatAction, ParseMode
 from aiogram.types import (
@@ -365,7 +366,7 @@ class CaliclawBot:
                     last_edit_time = now
                 except (aiohttp.ClientError, asyncio.TimeoutError):
                     pass
-                except Exception as _edit_err:
+                except (aiogram.exceptions.TelegramBadRequest,) as _edit_err:
                     if "message is not modified" not in str(_edit_err):
                         logger.warning("edit_text failed: %s", _edit_err)
 
@@ -533,7 +534,7 @@ class CaliclawBot:
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning("Failed to send response: %s", e)
                 await self.bot.send_message(chat_id, text)
-            except Exception as _e:
+            except (aiogram.exceptions.TelegramBadRequest,) as _e:
                 if "message is not modified" not in str(_e):
                     raise
             return

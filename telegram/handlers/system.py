@@ -235,12 +235,22 @@ def register(bot: CaliclawBot) -> None:
         if under_systemd:
             logger.info("Restart requested (systemd will auto-restart)")
         else:
+            import shutil
+            import platform
             pid_file = bot.settings.data_dir / "caliclaw.pid"
             pid_file.unlink(missing_ok=True)
-            subprocess.Popen(
-                ["bash", "-c", "sleep 2 && caliclaw start"],
-                start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            daemon_bin = shutil.which("caliclaw-daemon") or str(
+                Path(sys.executable).parent / "caliclaw-daemon"
             )
-            logger.info("Restart requested (new process scheduled)")
+            work_dir = str(bot.settings.project_root)
+            use_new_session = platform.system() != "Darwin"
+            subprocess.Popen(
+                ["bash", "-c", f"sleep 2 && {daemon_bin}"],
+                cwd=work_dir,
+                start_new_session=use_new_session,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+            )
+            logger.info("Restart requested (new daemon scheduled)")
 
         os.kill(os.getpid(), sig_mod.SIGTERM)
