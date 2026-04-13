@@ -32,13 +32,15 @@ def cmd_start_sync(args: argparse.Namespace) -> None:
     debug = getattr(args, "debug", False)
 
     # Auto-init if not set up yet
-    env_file = _ROOT / ".env"
+    from core.config import get_settings as _gs
+    _settings = _gs()
+    env_file = _settings.project_root / ".env"
     if not env_file.exists():
         ui.info("First run detected — running setup first")
         from cli.commands.init import cmd_init
         asyncio.run(cmd_init(args))
 
-    pid_file = _ROOT / "data" / "caliclaw.pid"
+    pid_file = _settings.data_dir / "caliclaw.pid"
 
     # Kill ANY zombie __main__.py processes from previous runs
     _kill_zombies(pid_file)
@@ -55,18 +57,24 @@ def cmd_start_sync(args: argparse.Namespace) -> None:
 
     ui.banner_small(ui.vibe("start"))
 
-    cmd = [sys.executable, str(_ROOT / "__main__.py")]
+    cmd = [sys.executable, "-m", "caliclaw"]
+    # For source installs, use __main__.py directly
+    main_py = _ROOT / "__main__.py"
+    if main_py.exists():
+        cmd = [sys.executable, str(main_py)]
     if debug:
         cmd.append("--debug")
 
+    work_dir = str(_settings.project_root) if _settings.project_root.exists() else str(_ROOT)
+
     if debug:
-        subprocess.run(cmd, cwd=str(_ROOT))
+        subprocess.run(cmd, cwd=work_dir)
     else:
-        log_path = _ROOT / "logs" / "caliclaw.log"
+        log_path = _settings.project_root / "logs" / "caliclaw.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = open(log_path, "a")
         proc = subprocess.Popen(
-            cmd, cwd=str(_ROOT), stdout=log_file, stderr=log_file,
+            cmd, cwd=work_dir, stdout=log_file, stderr=log_file,
             start_new_session=True,
         )
         pid_file.parent.mkdir(parents=True, exist_ok=True)
@@ -142,8 +150,9 @@ def _kill_zombies(pid_file: Path) -> int:
 def cmd_stop_sync(args: argparse.Namespace) -> None:
     import signal
     from cli.ui import ui
+    from core.config import get_settings
 
-    pid_file = _ROOT / "data" / "caliclaw.pid"
+    pid_file = get_settings().data_dir / "caliclaw.pid"
 
     # Kill main process
     if pid_file.exists():
@@ -364,30 +373,36 @@ def cmd_auth(args: argparse.Namespace) -> None:
 def cmd_doctor(args: argparse.Namespace) -> None:
     import shutil
     from cli.ui import ui
+    from core.config import get_settings
+
+    settings = get_settings()
+    root = settings.project_root
 
     ui.banner_small("doctor")
     ui.c.print()
 
     checks = [
         ("Python", sys.version.split()[0], True),
-        (".env", "found" if (_ROOT / ".env").exists() else "missing", (_ROOT / ".env").exists()),
-        ("Database", "found" if (_ROOT / "data" / "caliclaw.db").exists() else "missing", (_ROOT / "data" / "caliclaw.db").exists()),
+        (".env", "found" if (root / ".env").exists() else "missing", (root / ".env").exists()),
+        ("Database", "found" if (settings.data_dir / "caliclaw.db").exists() else "missing", (settings.data_dir / "caliclaw.db").exists()),
         ("Engine", shutil.which("claude") or "not found", bool(shutil.which("claude"))),
         ("ffmpeg", shutil.which("ffmpeg") or "not found", bool(shutil.which("ffmpeg"))),
     ]
 
     whisper_found = shutil.which("whisper-cpp") or shutil.which("whisper")
     if not whisper_found:
-        for candidate in [_ROOT / "vendor" / "whisper.cpp" / "build" / "bin" / "whisper-cli", _ROOT / "vendor" / "whisper.cpp" / "build" / "bin" / "main"]:
+        for candidate in [root / "vendor" / "whisper.cpp" / "build" / "bin" / "whisper-cli", _ROOT / "vendor" / "whisper.cpp" / "build" / "bin" / "whisper-cli"]:
             if candidate.exists():
                 whisper_found = str(candidate)
                 break
     checks.append(("whisper-cpp", whisper_found or "not found", bool(whisper_found)))
 
-    model_path = _ROOT / "models" / "ggml-base.bin"
+    model_path = root / "models" / "ggml-base.bin"
+    if not model_path.exists():
+        model_path = _ROOT / "models" / "ggml-base.bin"
     checks.append(("whisper model", "found" if model_path.exists() else "not found", model_path.exists()))
 
-    agents_dir = _ROOT / "agents" / "global" / "main"
+    agents_dir = settings.agents_dir / "global" / "main"
     checks.append(("Main agent", "found" if agents_dir.exists() else "missing", agents_dir.exists()))
 
     all_ok = True
