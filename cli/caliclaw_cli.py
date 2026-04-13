@@ -15,6 +15,13 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 os.chdir(_ROOT)
 
+# Fix macOS SSL: Python doesn't auto-use certifi's certificate bundle
+try:
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+except ImportError:
+    pass
+
 
 # ── Sync commands ──
 

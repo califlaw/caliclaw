@@ -11,6 +11,13 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Fix macOS SSL: Python doesn't auto-use certifi's certificate bundle
+try:
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+except ImportError:
+    pass
+
 from core.config import get_settings
 from core.db import Database
 from core.agent import AgentPool
