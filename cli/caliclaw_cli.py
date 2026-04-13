@@ -86,9 +86,14 @@ def cmd_start_sync(args: argparse.Namespace) -> None:
         log_path = _settings.project_root / "logs" / "caliclaw.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = open(log_path, "a")
+        import platform
+        # macOS: don't detach session — Claude Code auth needs Keychain access
+        # Linux: detach so daemon survives terminal close
+        use_new_session = platform.system() != "Darwin"
         proc = subprocess.Popen(
             cmd, cwd=work_dir, stdout=log_file, stderr=log_file,
-            start_new_session=True,
+            start_new_session=use_new_session,
+            stdin=subprocess.DEVNULL,
         )
         pid_file.parent.mkdir(parents=True, exist_ok=True)
         pid_file.write_text(str(proc.pid))
