@@ -42,7 +42,7 @@ async def cmd_init(args: argparse.Namespace) -> None:
     ui.c.print("[dim]   Answer a few questions to forge your agent.[/dim]")
     ui.c.print()
 
-    # Grant base engine permissions (Bash, Read, Write, etc.)
+    # Grant base engine permissions
     from security.engine_permissions import ensure_base_permissions
     ensure_base_permissions()
 
@@ -91,14 +91,12 @@ async def cmd_init(args: argparse.Namespace) -> None:
         lines = [f"TELEGRAM_BOT_TOKEN={token}"]
         lines.append(f"TZ={tz}")
 
-        # Pin full path to claude binary so systemd can find it
         claude_path = _shutil.which("claude")
         if claude_path:
             lines.append(f"CLAUDE_BINARY={claude_path}")
 
         env_file.write_text("\n".join(lines) + "\n")
 
-        # Generate pairing code
         pairing_code = secrets.token_hex(3).upper()
         code_file = settings.data_dir / "pairing_code.txt"
         code_file.parent.mkdir(parents=True, exist_ok=True)
@@ -109,13 +107,14 @@ async def cmd_init(args: argparse.Namespace) -> None:
         ui.c.print(f"  [bold yellow]Pairing code: {pairing_code}[/bold yellow]")
         ui.c.print(f"  [dim]After starting the bot, send this to your bot in Telegram:[/dim]")
         ui.c.print(f"  [bold]/pair {pairing_code}[/bold]")
-        ui.c.print(f"  [dim]This links the bot to your account.[/dim]")
     else:
         ui.ok(".env exists, skipping Telegram setup")
 
-    # ── Step 2: Your profile ──
-    # Skip if migration already populated USER.md
+    # ── Step 2: Profile ──
     user_md = settings.agents_dir / "global" / "main" / "USER.md"
+    language = "en"
+    name = ""
+    role = ""
     if migrated and user_md.exists() and len(user_md.read_text().strip()) > 30:
         ui.step(2, 5, "About you")
         ui.ok("Imported from previous project")
@@ -133,13 +132,13 @@ async def cmd_init(args: argparse.Namespace) -> None:
         )
         ui.ok("Profile saved")
 
-    # ── Step 3: Assistant personality ──
-    # Skip if migration already populated SOUL.md
+    # ── Step 3: Assistant ──
     soul_md = settings.agents_dir / "global" / "main" / "SOUL.md"
+    assistant_name = "caliclaw"
+
     if migrated and soul_md.exists() and len(soul_md.read_text().strip()) > 50:
         ui.step(3, 5, "Your assistant")
         ui.ok("Soul imported from previous project")
-        assistant_name = "caliclaw"
         model = ui.radio([
             ("sonnet", "sonnet   Balanced  (recommended)"),
             ("opus",   "opus     Maximum reasoning, slower"),
@@ -147,10 +146,6 @@ async def cmd_init(args: argparse.Namespace) -> None:
         ], title="Default model", default="sonnet")
         from cli.commands.model import _write_model_to_env
         _write_model_to_env(settings.project_root, model)
-        # Skip style/specialties/rules — soul already imported
-        style = "concise and direct, no fluff"
-        specialties = ""
-        rules = []
     else:
         ui.step(3, 5, "Your assistant")
         ui.c.print()
@@ -180,85 +175,71 @@ async def cmd_init(args: argparse.Namespace) -> None:
         rules_input = input("  Rules: ").strip()
         rules = [r.strip() for r in rules_input.split(",") if r.strip()] if rules_input else []
 
-    # Generate SOUL.md (skip if migration already imported one)
-    if not (migrated and soul_md.exists() and len(soul_md.read_text().strip()) > 50):
-        _lang = language if "language" in locals() else "en"
-        _generate_soul(settings, ui, assistant_name, style, _lang, specialties, rules)
+        # Generate SOUL.md
+        soul_parts = [
+            f"You are {assistant_name}, a personal AI assistant.",
+            "You communicate through Telegram. You have full access to the system — bash, files, git, docker, etc.",
+            "", "## Communication",
+            f"- Style: {style}", f"- Language: {language}",
+        ]
+        if specialties:
+            soul_parts.append(f"- Specialties: {specialties}")
+        soul_parts.extend([
+            "", "## About yourself",
+            "- NEVER discuss your internal architecture or how you work under the hood",
+            "- NEVER mention Claude, Claude Code, APIs, SDKs, or technical details about your engine",
+            '- NEVER reference "approval prompts", "permission dialogs", "Allow button", or any external interface',
+            "- You run NON-INTERACTIVELY through Telegram. There is no other UI. If you need user confirmation — ask in this chat, not via external tools",
+            "- Focus on what you CAN DO, not how you're built",
+        ])
+        if rules:
+            soul_parts.extend(["", "## Rules"] + [f"- {r}" for r in rules])
+        soul_parts.extend([
+            "", "## Core Principles",
+            "- Verify before act: NEVER assume file contents or system state. Always check first.",
+            "- Rate your confidence before actions (HIGH/MEDIUM/LOW). Ask user if LOW.",
+            "",
+            "## Approval for dangerous actions",
+            "Before executing destructive or irreversible actions, output the marker on its own line:",
+            "[APPROVAL_NEEDED] <short description of what you want to do>",
+            "Then STOP — do NOT execute. The system will show the user Approve/Deny buttons.",
+            "If approved, you will receive a follow-up message to proceed.",
+            "Actions that require approval:",
+            "- Deleting files, directories, databases, or user data",
+            "- Deploying to production, restarting production services",
+            "- Running commands on remote servers (ssh, scp to production)",
+            "- Modifying system configs (sshd, nginx, systemd units)",
+            "- Any action you rate as LOW confidence",
+            "", "## Anti-Hallucination",
+            "- NEVER assume a file exists — read it first",
+            "- NEVER assume a command exists — check with which/type",
+            "- NEVER assume a service is running — check with systemctl/ps",
+            "- Every claim about the system must cite the check you ran",
+            "", "## Memory",
+            "- Read memory before starting work to understand context",
+            "- Write important learnings to memory after completing tasks",
+            "- Update USER.md when you learn something about the user",
+            "", "## Agent Spawning",
+            "- When a task needs specialization or parallel work, spawn sub-agents",
+            "- You can create ANY agent for ANY task without asking",
+            "- Kill agents after task completion, extract knowledge first",
+        ])
+        soul_md.parent.mkdir(parents=True, exist_ok=True)
+        soul_md.write_text("\n".join(soul_parts) + "\n", encoding="utf-8")
 
-
-def _generate_soul(settings, ui, assistant_name, style, language, specialties, rules):
-    """Write a fresh SOUL.md from init wizard inputs."""
-    soul_parts = [
-        f"You are {assistant_name}, a personal AI assistant.",
-        f"You communicate through Telegram. You have full access to the system — bash, files, git, docker, etc.",
-        "", "## Communication",
-        f"- Style: {style}", f"- Language: {language}",
-    ]
-    if specialties:
-        soul_parts.append(f"- Specialties: {specialties}")
-
-    soul_parts.extend([
-        "", "## About yourself",
-        "- NEVER discuss your internal architecture or how you work under the hood",
-        "- NEVER mention Claude, Claude Code, APIs, SDKs, or technical details about your engine",
-        '- NEVER reference "approval prompts", "permission dialogs", "Allow button", or any external interface',
-        "- You run NON-INTERACTIVELY through Telegram. There is no other UI. If you need user confirmation — ask in this chat, not via external tools",
-        "- Focus on what you CAN DO, not how you're built",
-    ])
-    if rules:
-        soul_parts.append("")
-        soul_parts.append("## Rules")
-        for rule in rules:
-            soul_parts.append(f"- {rule}")
-
-    soul_parts.extend([
-        "", "## Core Principles",
-        "- Verify before act: NEVER assume file contents or system state. Always check first.",
-        "- Rate your confidence before actions (HIGH/MEDIUM/LOW). Ask user if LOW.",
-        "",
-        "## Approval for dangerous actions",
-        "Before executing destructive or irreversible actions, output the marker on its own line:",
-        "[APPROVAL_NEEDED] <short description of what you want to do>",
-        "Then STOP — do NOT execute. The system will show the user Approve/Deny buttons.",
-        "If approved, you will receive a follow-up message to proceed.",
-        "Actions that require approval:",
-        "- Deleting files, directories, databases, or user data",
-        "- Deploying to production, restarting production services",
-        "- Running commands on remote servers (ssh, scp to production)",
-        "- Modifying system configs (sshd, nginx, systemd units)",
-        "- Any action you rate as LOW confidence",
-        "", "## Anti-Hallucination",
-        "- NEVER assume a file exists — read it first",
-        "- NEVER assume a command exists — check with which/type",
-        "- NEVER assume a service is running — check with systemctl/ps",
-        "- Every claim about the system must cite the check you ran",
-        "", "## Memory",
-        "- Read memory before starting work to understand context",
-        "- Write important learnings to memory after completing tasks",
-        "- Update USER.md when you learn something about the user",
-        "", "## Agent Spawning",
-        "- When a task needs specialization or parallel work, spawn sub-agents",
-        "- You can create ANY agent for ANY task without asking",
-        "- Kill agents after task completion, extract knowledge first",
-    ])
-
-    soul_md = settings.agents_dir / "global" / "main" / "SOUL.md"
-    soul_md.write_text("\n".join(soul_parts) + "\n", encoding="utf-8")
-
-    identity_md = settings.agents_dir / "global" / "main" / "IDENTITY.md"
-    identity_md.write_text(
-        f"name: {assistant_name}\nrole: Personal AI Assistant\nstyle: {style}\nlanguage: {language}\n",
-        encoding="utf-8",
-    )
-
-    ui.ok(f"Assistant '{assistant_name}' configured")
+        identity_md = settings.agents_dir / "global" / "main" / "IDENTITY.md"
+        identity_md.write_text(
+            f"name: {assistant_name}\nrole: Personal AI Assistant\nstyle: {style}\nlanguage: {language}\n",
+            encoding="utf-8",
+        )
+        ui.ok(f"Assistant '{assistant_name}' configured")
 
     # ── Step 4: Skills ──
     ui.step(4, 5, "Skills")
     available_skills = _get_available_skills()
 
     enabled_skills = set(ui.checkbox(
-        [(name, f"{name:<18} {desc}", True) for name, desc in available_skills],
+        [(n, f"{n:<18} {d}", True) for n, d in available_skills],
         title="Select skills",
     ))
 
@@ -267,7 +248,6 @@ def _generate_soul(settings, ui, assistant_name, style, language, specialties, r
     skills_config.write_text("\n".join(sorted(enabled_skills)) + "\n")
     ui.ok(f"Skills: {', '.join(sorted(enabled_skills))}")
 
-    # Copy bundled skills into the user's skills dir so the agent loads them
     import shutil
     from core.config import bundled_skills_path
     _bundled = bundled_skills_path()
@@ -280,7 +260,6 @@ def _generate_soul(settings, ui, assistant_name, style, language, specialties, r
         if dst.resolve() != src.resolve() and not dst.exists():
             shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
-    # Apply permission side-effects for enabled skills
     from security.engine_permissions import parse_skill_permissions, grant_tools
     for sname in enabled_skills:
         perms = parse_skill_permissions(_bundled / sname / "SKILL.md")
@@ -308,37 +287,31 @@ def _generate_soul(settings, ui, assistant_name, style, language, specialties, r
         await db.close()
     ui.ok("Database ready")
 
-    # Dashboard setting
     if "dashboard" in selected_options:
-        env_file = settings.project_root / ".env"
-        if env_file.exists():
-            content = env_file.read_text()
+        env = settings.project_root / ".env"
+        if env.exists():
+            content = env.read_text()
             if "DASHBOARD_ENABLED" not in content:
-                content += "\nDASHBOARD_ENABLED=true\n"
-                env_file.write_text(content)
+                env.write_text(content + "\nDASHBOARD_ENABLED=true\n")
         ui.ok("Dashboard enabled (port 8080)")
 
-    # Auto-backup setting
     if "backup" in selected_options:
-        env_file = settings.project_root / ".env"
-        if env_file.exists():
-            content = env_file.read_text()
+        env = settings.project_root / ".env"
+        if env.exists():
+            content = env.read_text()
             if "BACKUP_ENABLED" not in content:
-                content += "\nBACKUP_ENABLED=true\nBACKUP_INTERVAL_DAYS=7\n"
-                env_file.write_text(content)
+                env.write_text(content + "\nBACKUP_ENABLED=true\nBACKUP_INTERVAL_DAYS=7\n")
         ui.ok("Auto-backup enabled (weekly)")
 
     ui.c.print()
     _install_system_deps()
 
-    # Auto-start service
     if "autostart" in selected_options:
         _install_service(settings)
 
-    # Final BIOS-style provisioning summary
     provisioned = [
         ("config", ".env written"),
-        ("profile", f"{name or 'user'} / {role or 'unset'}"),
+        ("profile", f"{name or 'imported'} / {role or 'imported'}"),
         ("soul", f"{assistant_name} forged"),
         ("skills", f"{len(enabled_skills)} enabled"),
         ("database", "sqlite initialized"),
@@ -354,20 +327,28 @@ def _generate_soul(settings, ui, assistant_name, style, language, specialties, r
     ui.next_steps([
         "caliclaw start       Start the bot",
         "caliclaw chat        Terminal chat",
-        "caliclaw status      System status",
+        "caliclaw pulse       System pulse",
     ])
 
 
+# ── Helper functions (module-level, NOT async) ──
+
+
 def _install_service(settings) -> None:
-    """Install systemd service for auto-start."""
     import getpass
+    import os
     import subprocess
     from cli.ui import ui
 
     user = getpass.getuser()
+    home = Path.home()
     venv_python = f"{_ROOT}/.venv/bin/python"
     if not Path(venv_python).exists():
         venv_python = sys.executable
+
+    sys_path = os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")
+    extra_dirs = [f"{home}/.local/bin", f"{home}/.cargo/bin", "/usr/local/bin"]
+    full_path = ":".join(dict.fromkeys(extra_dirs + sys_path.split(":")))
 
     service = (
         "[Unit]\n"
@@ -382,6 +363,7 @@ def _install_service(settings) -> None:
         "Restart=on-failure\n"
         "RestartSec=10\n"
         "Environment=PYTHONUNBUFFERED=1\n"
+        f'Environment="PATH={full_path}"\n'
         "TimeoutStopSec=30\n"
         "KillSignal=SIGTERM\n"
         f"StandardOutput=append:{_ROOT}/logs/caliclaw.log\n"
@@ -404,10 +386,8 @@ def _install_service(settings) -> None:
 
 
 async def _ask_migration(settings, ui) -> bool:
-    """Ask if user wants to migrate from another *claw project. Returns True if migrated."""
     from pathlib import Path
 
-    # Auto-detect common locations
     candidates = []
     home = Path.home()
     for name, path in [
@@ -443,7 +423,6 @@ async def _ask_migration(settings, ui) -> bool:
         ui.fail(f"Directory not found: {source_path}")
         return False
 
-    # Run migration
     from core.migrate import detect_source, get_migrator, ConflictStrategy, MigrationComponent
     source_name = choice if choice != "custom" else detect_source(source_path)
     if not source_name:
@@ -483,7 +462,6 @@ async def _ask_migration(settings, ui) -> bool:
 
 
 def _get_available_skills() -> list[tuple[str, str]]:
-    """Scan bundled skills and return (name, description) pairs."""
     import re
     from core.config import bundled_skills_path
     skills_dir = bundled_skills_path()
@@ -510,10 +488,7 @@ _SKILL_POST_INSTALL = {"browser": ["playwright", "install", "chromium"]}
 
 
 def install_skill_deps(skill_name: str) -> None:
-    """Install dependencies for a skill."""
     import subprocess
-    import shutil
-
     deps = _SKILL_DEPS.get(skill_name)
     if not deps:
         return
@@ -534,7 +509,6 @@ def install_skill_deps(skill_name: str) -> None:
 
 
 def _install_system_deps() -> None:
-    """Install whisper-cpp, ffmpeg and other system dependencies."""
     import shutil
     import subprocess
     from cli.ui import ui
@@ -568,7 +542,6 @@ def _install_system_deps() -> None:
 
     whisper_dir = _ROOT / "vendor" / "whisper.cpp"
     whisper_bin = whisper_dir / "build" / "bin" / "whisper-cli"
-    models_dir = _ROOT / "models"
 
     if whisper_bin.exists():
         ui.ok("whisper-cpp (already built)")
@@ -622,9 +595,9 @@ def _install_system_deps() -> None:
         if env_file.exists():
             content = env_file.read_text()
             if "WHISPER_CPP_PATH" not in content:
-                content += f"\nWHISPER_CPP_PATH={actual_bin}\n"
-                env_file.write_text(content)
+                env_file.write_text(content + f"\nWHISPER_CPP_PATH={actual_bin}\n")
 
+    models_dir = _ROOT / "models"
     models_dir.mkdir(exist_ok=True)
     model_file = models_dir / "ggml-base.bin"
 
