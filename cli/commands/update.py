@@ -49,7 +49,15 @@ async def cmd_update(args: argparse.Namespace) -> None:
                 data = json.loads(resp.read())
                 latest = data["info"]["version"]
     except (urllib.error.URLError, TimeoutError, KeyError, json.JSONDecodeError) as e:
-        ui.fail(f"Could not reach PyPI: {e}")
+        err_str = str(e)
+        if "CERTIFICATE_VERIFY_FAILED" in err_str:
+            ui.fail("SSL certificate error (common on macOS)")
+            ui.info("Fix: run [bold]pip install --upgrade certifi[/bold]")
+            ui.info("Or:  [bold]/Applications/Python\\ 3.*/Install\\ Certificates.command[/bold]")
+            ui.c.print()
+            ui.info("Meanwhile, upgrade manually: [bold]pip install --upgrade caliclaw[/bold]")
+        else:
+            ui.fail(f"Could not reach PyPI: {e}")
         return
 
     ui.c.print(f"  Latest on PyPI:   [bold red]{latest}[/bold red]")
