@@ -513,6 +513,29 @@ class CaliclawBot:
         if result.session_id:
             await self.db.update_session(session_id, claude_session_id=result.session_id)
 
+    async def _send_one(
+        self, chat_id: int, text: str, first_message: Optional[Message] = None,
+    ) -> None:
+        """Send/edit a single message, trying Markdown first, falling back to plain."""
+        # Try Markdown; on parse failure resend as plain text (Claude often emits
+        # unbalanced markers like lone backticks or underscores in identifiers).
+        for parse_mode in (ParseMode.MARKDOWN, None):
+            try:
+                if first_message is not None:
+                    if text != (first_message.text or ""):
+                        await first_message.edit_text(text, parse_mode=parse_mode)
+                    return
+                await self.bot.send_message(chat_id, text, parse_mode=parse_mode)
+                return
+            except aiogram.exceptions.TelegramBadRequest as e:
+                err = str(e)
+                if "message is not modified" in err:
+                    return
+                if "can't parse entities" in err.lower():
+                    first_message = None  # edit with different parse_mode is racy; resend
+                    continue
+                raise
+
     async def _send_long_message(
         self,
         chat_id: int,
@@ -522,54 +545,35 @@ class CaliclawBot:
         """Send text as one or multiple messages, splitting on 4096 char limit.
 
         Splits at line breaks where possible to keep markdown intact.
+        Attempts Markdown rendering; falls back to plain text if parsing fails.
         """
         MAX = 4096
 
         if len(text) <= MAX:
             try:
-                if first_message is None:
-                    await self.bot.send_message(chat_id, text)
-                elif text != (first_message.text or ""):
-                    await first_message.edit_text(text)
+                await self._send_one(chat_id, text, first_message)
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning("Failed to send response: %s", e)
-                await self.bot.send_message(chat_id, text)
-            except (aiogram.exceptions.TelegramBadRequest,) as _e:
-                if "message is not modified" not in str(_e):
-                    raise
             return
 
-        # Split into chunks at line boundaries
         chunks = []
         remaining = text
         while remaining:
             if len(remaining) <= MAX:
                 chunks.append(remaining)
                 break
-            # Try to split at last newline before MAX
             split_at = remaining.rfind("\n", 0, MAX)
             if split_at == -1 or split_at < MAX // 2:
-                # No good break — split at MAX (worst case)
                 split_at = MAX
             chunks.append(remaining[:split_at])
             remaining = remaining[split_at:].lstrip("\n")
 
-        # First chunk replaces the streaming message (if any)
         try:
-            if first_message is not None:
-                await first_message.edit_text(chunks[0])
-            else:
-                await self.bot.send_message(chat_id, chunks[0])
-            # Remaining chunks as new messages
+            await self._send_one(chat_id, chunks[0], first_message)
             for chunk in chunks[1:]:
-                await self.bot.send_message(chat_id, chunk)
+                await self._send_one(chat_id, chunk, None)
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             logger.warning("Failed to send chunked response: %s", e)
-            for chunk in chunks:
-                try:
-                    await self.bot.send_message(chat_id, chunk)
-                except (aiohttp.ClientError, asyncio.TimeoutError):
-                    pass
 
     _ERROR_HINTS = {
         "credit is too low": "Subscription limit exhausted. Check claude.ai/settings or wait for reset.",
