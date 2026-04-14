@@ -15,6 +15,10 @@ from core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+class _IdleTimeout(Exception):
+    """Raised when streaming subprocess produces no output for idle_timeout_seconds."""
+
+
 @dataclass
 class AgentResult:
     text: str
@@ -31,7 +35,8 @@ class AgentConfig:
     system_prompt: str = ""
     allowed_tools: Optional[List[str]] = None
     working_dir: Optional[Path] = None
-    timeout_seconds: int = 900
+    timeout_seconds: int = 3600
+    idle_timeout_seconds: int = 900
     continue_session: bool = False
     session_id: Optional[str] = None
     max_turns: Optional[int] = None
@@ -176,41 +181,47 @@ class AgentProcess:
                 if asyncio.iscoroutine(result):
                     await result
 
-            async def read_stream() -> None:
+            async def process_line(line: str) -> None:
                 nonlocal session_id
-                assert self.process and self.process.stdout
-                async for line_bytes in self.process.stdout:
-                    line = line_bytes.decode("utf-8", errors="replace").strip()
-                    if not line:
-                        continue
-                    try:
-                        event = json.loads(line)
-                        etype = event.get("type", "")
-                        if etype == "assistant":
-                            # Extract text from content blocks
-                            msg = event.get("message", {})
-                            content = msg.get("content", []) if isinstance(msg, dict) else []
-                            for block in content:
-                                if isinstance(block, dict) and block.get("type") == "text":
-                                    text = block.get("text", "")
-                                    if text:
-                                        full_text_parts.append(text)
-                                        await _emit(text)
-                        elif etype == "result":
-                            session_id = event.get("session_id")
-                            text = event.get("result", "")
-                            if text and text not in "".join(full_text_parts):
-                                full_text_parts.append(text)
-                                await _emit(text)
-                    except json.JSONDecodeError:
-                        # Plain text output
-                        full_text_parts.append(line)
-                        await _emit(line)
+                try:
+                    event = json.loads(line)
+                    etype = event.get("type", "")
+                    if etype == "assistant":
+                        msg = event.get("message", {})
+                        content = msg.get("content", []) if isinstance(msg, dict) else []
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                text = block.get("text", "")
+                                if text:
+                                    full_text_parts.append(text)
+                                    await _emit(text)
+                    elif etype == "result":
+                        session_id = event.get("session_id")
+                        text = event.get("result", "")
+                        if text and text not in "".join(full_text_parts):
+                            full_text_parts.append(text)
+                            await _emit(text)
+                except json.JSONDecodeError:
+                    full_text_parts.append(line)
+                    await _emit(line)
 
-            await asyncio.wait_for(
-                read_stream(),
-                timeout=self.config.timeout_seconds,
-            )
+            # Idle-timeout read loop: reset timer on every line.
+            # Active agent stays alive regardless of total duration;
+            # only a truly hung subprocess (no output for idle_timeout_seconds) is killed.
+            assert self.process and self.process.stdout
+            idle = self.config.idle_timeout_seconds
+            while True:
+                try:
+                    line_bytes = await asyncio.wait_for(
+                        self.process.stdout.readline(), timeout=idle
+                    )
+                except asyncio.TimeoutError:
+                    raise _IdleTimeout()
+                if not line_bytes:
+                    break
+                line = line_bytes.decode("utf-8", errors="replace").strip()
+                if line:
+                    await process_line(line)
             await self.process.wait()
 
             duration_ms = int((time.time() - self._start_time) * 1000)
@@ -221,14 +232,17 @@ class AgentProcess:
                 exit_code=self.process.returncode or 0,
             )
 
-        except asyncio.TimeoutError:
+        except _IdleTimeout:
             duration_ms = int((time.time() - self._start_time) * 1000)
             await self.kill()
+            idle = self.config.idle_timeout_seconds
+            logger.error("Agent %s idle for %ds, killed", self.config.name, idle)
             return AgentResult(
-                text="".join(self._output_chunks),
+                text="".join(full_text_parts),
+                session_id=session_id,
                 duration_ms=duration_ms,
                 exit_code=-1,
-                error=f"Timeout after {self.config.timeout_seconds}s",
+                error=f"Idle timeout after {idle}s (no output)",
             )
 
     def _parse_output(self, stdout: str) -> tuple[str, Optional[str]]:
