@@ -58,7 +58,7 @@ class CaliclawBot:
         self._pairing_code: str | None = self._load_pairing_code()
         self._working_dir: Path = self.settings.workspace_dir
         self._inject_context: bool = False
-        self._stop_requested: bool = False
+        self._stop_epoch: int = 0
 
         self._setup_handlers()
 
@@ -198,8 +198,9 @@ class CaliclawBot:
         sender = message.from_user.full_name if message.from_user else "Unknown"
         stopped = []
 
-        # Set stop flag so any in-flight _run_agent checks it
-        self._stop_requested = True
+        # Bump stop epoch so any in-flight _run_agent / typing task sees the change.
+        # Fresh _run_agent calls capture the new epoch and are unaffected.
+        self._stop_epoch += 1
 
         loop_runner = self._active_loops.get(chat_id)
         if loop_runner:
@@ -223,7 +224,8 @@ class CaliclawBot:
         if typing_task:
             typing_task.cancel()
 
-        # DON'T reset _stop_requested here — it's reset when next message starts
+        # Epoch is not reset — new _run_agent captures the incremented value on start
+        # and compares against it, so old in-flight work exits while new work runs.
         stop_detail = ", ".join(stopped) if stopped else "nothing active"
         logger.info("STOP command from %s (chat %d): %s", sender, chat_id, stop_detail)
 
@@ -318,12 +320,8 @@ class CaliclawBot:
     async def _run_agent(
         self, chat_id: int, session_id: str, batch: list[QueuedMessage]
     ) -> None:
-        if self._stop_requested:
-            self._stop_requested = False
-            return
-
-        self._stop_requested = False
-        typing_task = asyncio.create_task(self._keep_typing(chat_id))
+        my_epoch = self._stop_epoch
+        typing_task = asyncio.create_task(self._keep_typing(chat_id, my_epoch))
         self._typing_tasks[chat_id] = typing_task
 
         try:
@@ -351,7 +349,7 @@ class CaliclawBot:
 
             async def on_chunk(chunk: str) -> None:
                 nonlocal response_msg, accumulated_text, last_edit_time
-                if self._stop_requested:
+                if self._stop_epoch != my_epoch:
                     return
                 accumulated_text += chunk
                 now = time.time()
@@ -383,7 +381,7 @@ class CaliclawBot:
             self._typing_tasks.pop(chat_id, None)
 
             # If stop was requested while agent was running — don't send response
-            if self._stop_requested:
+            if self._stop_epoch != my_epoch:
                 return
 
             final_text = result.text or accumulated_text or "No response."
@@ -591,12 +589,12 @@ class CaliclawBot:
                 return hint
         return ""
 
-    async def _keep_typing(self, chat_id: int) -> None:
+    async def _keep_typing(self, chat_id: int, my_epoch: int) -> None:
         try:
-            while not self._stop_requested:
+            while self._stop_epoch == my_epoch:
                 await self.bot.send_chat_action(chat_id, ChatAction.TYPING)
                 for _ in range(8):
-                    if self._stop_requested:
+                    if self._stop_epoch != my_epoch:
                         return
                     await asyncio.sleep(0.5)
         except asyncio.CancelledError:
