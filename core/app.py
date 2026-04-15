@@ -166,7 +166,8 @@ class CaliclawApp:
             if self.settings.backup_enabled:
                 modules.append(("backup", f"auto every {self.settings.backup_interval_days}d"))
 
-            ui.boot(modules, version="v1.0.0")
+            from core import get_version
+            ui.boot(modules, version=f"v{get_version()}")
             ui.c.print("  [dim]Ctrl+C to stop. Logs: logs/caliclaw.log[/dim]")
             ui.c.print()
         else:

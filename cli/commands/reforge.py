@@ -33,7 +33,8 @@ async def cmd_reforge(args: argparse.Namespace) -> None:
 
     ui.banner()
     ui.c.print()
-    ui.c.print("[bold red]REFORGE v1.0.0[/bold red]")
+    from core import get_version
+    ui.c.print(f"[bold red]REFORGE v{get_version()}[/bold red]")
     ui.c.print("[dim red]Melt it down. Rebuild it.[/dim red]")
     ui.c.print()
     ui.c.print("[yellow]>> What do you want to reforge?[/yellow]")

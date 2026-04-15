@@ -152,17 +152,21 @@ class UI:
     def boot(
         self,
         modules: List[Tuple[str, str]],
-        version: str = "v1.0.0",
+        version: Optional[str] = None,
         animate: bool = True,
     ) -> None:
         """Print a BIOS-style boot sequence.
 
         Args:
             modules: list of (module_name, status) tuples in load order
-            version: BIOS version string
+            version: BIOS version string (defaults to installed package version)
             animate: pause briefly between lines (off in tests / non-tty)
         """
         import sys as _sys
+
+        if version is None:
+            from core import get_version
+            version = f"v{get_version()}"
 
         tick = 0.06 if (animate and _sys.stdout.isatty()) else 0.0
 

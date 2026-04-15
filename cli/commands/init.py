@@ -44,7 +44,8 @@ async def cmd_init(args: argparse.Namespace) -> None:
 
     ui.banner()
     ui.c.print()
-    ui.c.print("[bold yellow]CALICLAW SETUP v1.0.0[/bold yellow]")
+    from core import get_version
+    ui.c.print(f"[bold yellow]CALICLAW SETUP v{get_version()}[/bold yellow]")
     ui.c.print("[dim yellow]Copyright (C) 2026 caliclaw project[/dim yellow]")
     ui.c.print()
     ui.c.print("[yellow]>> First-time configuration[/yellow]")

@@ -55,9 +55,10 @@ def register(bot: CaliclawBot) -> None:
                 l for l in skills_config.read_text().splitlines() if l.strip()
             ])
 
+        from core import get_version
         bios = (
             "```\n"
-            "CALICLAW BIOS v1.0.0\n"
+            f"CALICLAW BIOS v{get_version()}\n"
             "Copyright (C) 2026 caliclaw\n"
             "\n"
             ">> Initializing boot sequence...\n"
