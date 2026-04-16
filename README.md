@@ -17,6 +17,26 @@
 </p>
 -->
 
+```
+┌─ caliclaw ─────────────────────────────────────────────┐
+│ you   > /spawn researcher "audit auth for bugs"        │
+│ bot   🟢 Agent researcher spawned (ephemeral)          │
+│                                                        │
+│ you   > delegate: find bugs and report                 │
+│ bot   [researcher] 3 issues in auth/session.py:        │
+│         1. JWT not rotated on privilege change         │
+│         2. Race condition in refresh token handler     │
+│         3. Session ID in error logs                    │
+│       Knowledge extracted → memory/. Agent killed 🔴   │
+│                                                        │
+│ you   > /cron "0 9 * * *" "morning health report"      │
+│ bot   ⏰ Scheduled (runs daily 09:00)                  │
+│                                                        │
+│ you   > stop                                           │
+│ bot   🛑 Stopped: 1 agent, 1 typing indicator          │
+└────────────────────────────────────────────────────────┘
+```
+
 ## Install
 
 ```bash
