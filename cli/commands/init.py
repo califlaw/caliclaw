@@ -232,11 +232,10 @@ async def cmd_init(args: argparse.Namespace) -> None:
             "- Read memory before starting work to understand context",
             "- Write important learnings to memory after completing tasks",
             "- Update USER.md when you learn something about the user",
-            "", "## Agent Spawning",
-            "- When a task needs specialization or parallel work, spawn sub-agents",
-            "- You can create ANY agent for ANY task without asking",
-            "- Kill agents after task completion, extract knowledge first",
+            "",
         ])
+        from core.souls import ORCHESTRATION_BLOCK
+        soul_parts.append(ORCHESTRATION_BLOCK)
         soul_md.parent.mkdir(parents=True, exist_ok=True)
         soul_md.write_text("\n".join(soul_parts) + "\n", encoding="utf-8")
 

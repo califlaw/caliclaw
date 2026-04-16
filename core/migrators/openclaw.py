@@ -294,31 +294,27 @@ class OpenclawMigrator(BaseMigrator):
             tgt.write_text(md, encoding="utf-8")
 
     def _post_migrate_merge_soul(self) -> None:
-        """Merge openclaw AGENTS.md rules INTO caliclaw SOUL.md for seamless continuity."""
+        """Append the canonical orchestration block to the migrated SOUL.md.
+
+        Openclaw's AGENTS.md uses a file-loading model that contradicts
+        caliclaw's lazy SoulLoader, so we do not import it verbatim.
+        Instead we ensure the migrated user gets the same orchestration
+        docs a fresh install gets.
+        """
+        from core.souls import ORCHESTRATION_BLOCK
+
         soul_dir = self.settings.agents_dir / "global" / "main"
-        agents_md = soul_dir / "AGENTS.md"
         soul_md = soul_dir / "SOUL.md"
 
-        if not agents_md.exists():
-            return
-
-        agents_content = agents_md.read_text(encoding="utf-8").strip()
-
-        # Read existing SOUL.md or create minimal one
         soul_content = ""
         if soul_md.exists():
             soul_content = soul_md.read_text(encoding="utf-8").strip()
 
-        # Append openclaw rules to SOUL if not already there
-        if "Imported from openclaw" not in soul_content:
-            merged = (
-                f"{soul_content}\n\n"
-                f"## Imported from openclaw\n\n"
-                f"{agents_content}\n"
-            )
+        if "Multi-Agent Orchestration" not in soul_content:
+            merged = f"{soul_content}\n\n{ORCHESTRATION_BLOCK}" if soul_content else ORCHESTRATION_BLOCK
+            soul_md.parent.mkdir(parents=True, exist_ok=True)
             soul_md.write_text(merged, encoding="utf-8")
 
-        # Update IDENTITY.md to reflect migration
         identity_md = soul_dir / "IDENTITY.md"
         if identity_md.exists():
             identity = identity_md.read_text(encoding="utf-8")
