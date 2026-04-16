@@ -66,6 +66,11 @@ Start ephemeral. Promote upward only when justified by reuse.
   `MemoryManager` before deleting the soul. Never kill without extraction
   unless the agent truly produced nothing useful.
 
+- **Pause / resume**: `await orch.pause_agent("researcher")` suspends the
+  agent — further `run_agent` calls return an error until
+  `await orch.resume_agent("researcher")`. Use when you want to hold a
+  configured agent without consuming its budget.
+
 - **Promote when the agent proves valuable across tasks**:
   `await orch.promote_agent("researcher", to_scope="project", project="caliclaw")`
   or `to_scope="global"`. Soul files move; DB row updates. History preserved.
@@ -74,6 +79,51 @@ Start ephemeral. Promote upward only when justified by reuse.
   - Task finished, no reuse → `kill` (with extraction).
   - Same agent will help again in this project → `promote` to `project`.
   - Role is broadly useful across projects → `promote` to `global`.
+
+### Budget (optional per-agent daily cap)
+
+Pass `budget_percent` to `SpawnRequest` when you want the agent to
+self-throttle against a share of the daily subscription budget:
+
+    await orch.spawn_agent(SpawnRequest(
+        name="researcher",
+        role="...",
+        soul="...",
+        budget_percent=5.0,   # max 5% of daily budget
+    ))
+
+When the agent's cumulative `estimated_percent` for today crosses the
+cap, the next `run_agent` auto-pauses it (status → `paused`) and returns
+a budget-exhausted error. Inspect usage, then `resume_agent` if you
+want it to resume against the same window, or wait until next day (UTC).
+
+### Coordination primitives
+
+- **Swarm (parallel DAG)** — `Orchestrator.run_swarm([SwarmTask(...)])`.
+  Declare `depends_on=["other_agent"]` for ordering; independent tasks
+  run concurrently. Set `on_fail="retry"` and `max_retries=2` on a task
+  to auto-retry transient failures (timeouts, rate limits, network).
+  Non-transient errors (missing agent, auth) never retry.
+
+- **Pipeline (sequential hand-off)** — `Orchestrator.run_pipeline([PipelineStage(...)])`.
+  Each stage's output is injected into the next stage's prompt via a
+  `Previous context: ...` prefix. Supports the same `on_fail="retry"` +
+  `max_retries` behavior per stage.
+
+### Mailbox — inter-agent messages
+
+Agents can leave messages for each other without going through pipeline
+context. Use it when a long-running agent needs to signal another
+without being in the same swarm batch:
+
+    await orch.send_message("researcher", "writer", "draft ready at /tmp/x.md")
+    msgs = await orch.get_messages("writer", unread_only=True)
+    for m in msgs:
+        # process m["body"], then:
+        await orch.mark_read(m["id"])
+
+Polling is explicit — agents must call `get_messages` when they expect
+mail. Messages are not auto-injected into system prompts.
 
 ### Coordination primitives
 

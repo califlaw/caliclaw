@@ -29,6 +29,7 @@ class SpawnRequest:
     model: str = "sonnet"
     allowed_tools: Optional[List[str]] = None
     timeout_seconds: int = 300
+    budget_percent: Optional[float] = None  # daily % cap; None = unlimited
 
 
 @dataclass
@@ -36,7 +37,8 @@ class SwarmTask:
     agent_name: str
     prompt: str
     depends_on: List[str] = field(default_factory=list)
-    on_fail: str = "report"  # report | retry | rollback
+    on_fail: str = "report"  # report | retry
+    max_retries: int = 2     # only used when on_fail == "retry"
 
 
 @dataclass
@@ -44,7 +46,19 @@ class PipelineStage:
     agent_name: str
     prompt_template: str
     depends_on: List[str] = field(default_factory=list)
-    on_fail: str = "stop"
+    on_fail: str = "stop"    # stop | retry | continue
+    max_retries: int = 2     # only used when on_fail == "retry"
+
+
+_TRANSIENT_PATTERNS = ("rate limit", "could not connect", "timeout", "temporarily")
+
+
+def _is_transient(result: AgentResult) -> bool:
+    """Whether an error looks retryable. Timeouts + network errors = yes."""
+    if result.exit_code == -1:
+        return True
+    err = (result.error or "").lower()
+    return any(p in err for p in _TRANSIENT_PATTERNS)
 
 
 class Orchestrator:
@@ -81,13 +95,36 @@ class Orchestrator:
             soul_path=str(soul_dir),
             permissions={"allowed_tools": request.allowed_tools},
             skills=request.skills,
+            budget_percent=request.budget_percent,
         )
 
         logger.info(
-            "Spawned agent %s (scope=%s, model=%s)",
-            request.name, request.scope, request.model,
+            "Spawned agent %s (scope=%s, model=%s, budget=%s)",
+            request.name, request.scope, request.model, request.budget_percent,
         )
         return request.name
+
+    async def pause_agent(self, agent_name: str) -> None:
+        """Suspend an agent. run_agent will refuse until resume_agent is called."""
+        agent = await self.db.get_agent(agent_name)
+        if not agent:
+            raise ValueError(f"Agent {agent_name} not found")
+        if agent["status"] == "killed":
+            raise ValueError(f"Cannot pause killed agent {agent_name}")
+        await self.db.update_agent_status(agent_name, "paused")
+        logger.info("Paused agent %s", agent_name)
+
+    async def resume_agent(self, agent_name: str) -> None:
+        """Resume a paused agent to active state."""
+        agent = await self.db.get_agent(agent_name)
+        if not agent:
+            raise ValueError(f"Agent {agent_name} not found")
+        if agent["status"] != "paused":
+            raise ValueError(
+                f"Agent {agent_name} is {agent['status']}, not paused"
+            )
+        await self.db.update_agent_status(agent_name, "active")
+        logger.info("Resumed agent %s", agent_name)
 
     async def run_agent(
         self,
@@ -100,6 +137,38 @@ class Orchestrator:
         agent = await self.db.get_agent(agent_name)
         if not agent:
             return AgentResult(text="", error=f"Agent {agent_name} not found", exit_code=1)
+
+        status = agent.get("status", "active")
+        if status == "paused":
+            return AgentResult(
+                text="",
+                error=f"Agent {agent_name} is paused; call resume_agent first",
+                exit_code=1,
+            )
+        if status == "killed":
+            return AgentResult(
+                text="",
+                error=f"Agent {agent_name} has been killed",
+                exit_code=1,
+            )
+
+        budget = agent.get("budget_percent")
+        if budget is not None:
+            used = await self.db.get_agent_usage_today(agent_name)
+            if used >= budget:
+                await self.db.update_agent_status(agent_name, "paused")
+                logger.warning(
+                    "Agent %s auto-paused: budget %.2f%% exceeded (used %.2f%%)",
+                    agent_name, budget, used,
+                )
+                return AgentResult(
+                    text="",
+                    error=(
+                        f"Budget exhausted: {used:.2f}%/{budget:.2f}%, "
+                        f"auto-paused"
+                    ),
+                    exit_code=1,
+                )
 
         scope = agent["scope"]
         project = agent.get("project")
@@ -121,11 +190,13 @@ class Orchestrator:
         result = await self.pool.run(config, prompt)
         await self.db.update_agent_status(agent_name, "active")
 
-        # Log usage
+        # Log usage with percent estimate so per-agent budget accrues correctly.
+        from monitoring.tracking import MODEL_WEIGHT
         await self.db.log_usage(
             agent_name=agent_name,
             model=config.model,
             duration_ms=result.duration_ms,
+            estimated_percent=MODEL_WEIGHT.get(config.model, 0.3),
         )
 
         return result
@@ -281,9 +352,22 @@ class Orchestrator:
 
             # Run ready tasks in parallel
             async def _run_task(task: SwarmTask) -> tuple[str, AgentResult]:
-                if on_progress:
-                    await on_progress(task.agent_name, "started")
-                result = await self.run_agent(task.agent_name, task.prompt)
+                attempts = (
+                    task.max_retries + 1 if task.on_fail == "retry" else 1
+                )
+                result: Optional[AgentResult] = None
+                for attempt in range(attempts):
+                    if on_progress:
+                        label = "started" if attempt == 0 else f"retry {attempt}"
+                        await on_progress(task.agent_name, label)
+                    result = await self.run_agent(task.agent_name, task.prompt)
+                    if not result.error:
+                        break
+                    if attempt + 1 < attempts and _is_transient(result):
+                        await asyncio.sleep(min(2 ** attempt, 30))
+                        continue
+                    break
+                assert result is not None
                 if on_progress:
                     status = "completed" if not result.error else "failed"
                     await on_progress(task.agent_name, status)
@@ -332,10 +416,22 @@ class Orchestrator:
             if context:
                 prompt = f"Previous context:\n{context}\n\n{prompt}"
 
-            if on_progress:
-                await on_progress(stage.agent_name, "started")
-
-            result = await self.run_agent(stage.agent_name, prompt)
+            attempts = (
+                stage.max_retries + 1 if stage.on_fail == "retry" else 1
+            )
+            result: Optional[AgentResult] = None
+            for attempt in range(attempts):
+                if on_progress:
+                    label = "started" if attempt == 0 else f"retry {attempt}"
+                    await on_progress(stage.agent_name, label)
+                result = await self.run_agent(stage.agent_name, prompt)
+                if not result.error:
+                    break
+                if attempt + 1 < attempts and _is_transient(result):
+                    await asyncio.sleep(min(2 ** attempt, 30))
+                    continue
+                break
+            assert result is not None
             results[stage.agent_name] = result
 
             if result.error:
@@ -349,3 +445,32 @@ class Orchestrator:
                     await on_progress(stage.agent_name, "completed")
 
         return results
+
+    # ── Mailbox (inter-agent messaging) ──
+
+    async def send_message(
+        self,
+        from_agent: str,
+        to_agent: str,
+        body: str,
+        metadata: Optional[Dict] = None,
+    ) -> int:
+        """Send a message from one agent to another. Returns message id."""
+        return await self.db.send_agent_message(
+            from_agent, to_agent, body, metadata=metadata,
+        )
+
+    async def get_messages(
+        self,
+        agent_name: str,
+        unread_only: bool = True,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Return messages addressed to agent_name, newest first."""
+        return await self.db.get_agent_messages(
+            agent_name, unread_only=unread_only, limit=limit,
+        )
+
+    async def mark_read(self, message_id: int) -> None:
+        """Mark a single mailbox message as read."""
+        await self.db.mark_agent_message_read(message_id)

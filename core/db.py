@@ -10,7 +10,7 @@ import aiosqlite
 
 from core.config import get_settings
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 _MIGRATIONS: Dict[int, str] = {
     1: """
@@ -137,6 +137,25 @@ _MIGRATIONS: Dict[int, str] = {
     );
 
     INSERT OR REPLACE INTO schema_version (version) VALUES (3);
+    """,
+    4: """
+    ALTER TABLE agents ADD COLUMN budget_percent REAL DEFAULT NULL;
+
+    CREATE TABLE IF NOT EXISTS agent_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_agent TEXT NOT NULL,
+        to_agent TEXT NOT NULL,
+        body TEXT NOT NULL,
+        timestamp REAL NOT NULL,
+        read_at REAL DEFAULT NULL,
+        metadata TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_to
+        ON agent_messages(to_agent, read_at);
+    CREATE INDEX IF NOT EXISTS idx_usage_log_agent_ts
+        ON usage_log(agent_name, timestamp);
+
+    INSERT OR REPLACE INTO schema_version (version) VALUES (4);
     """,
 }
 
@@ -282,17 +301,20 @@ class Database:
         permissions: Optional[Dict] = None,
         skills: Optional[List[str]] = None,
         metadata: Optional[Dict] = None,
+        budget_percent: Optional[float] = None,
     ) -> None:
         ts = time.time()
         await self.db.execute(
             """INSERT OR REPLACE INTO agents
-               (name, scope, project, created_at, soul_path, permissions, skills, metadata)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (name, scope, project, created_at, soul_path, permissions,
+                skills, metadata, budget_percent)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 name, scope, project, ts, soul_path,
                 json.dumps(permissions or {}),
                 json.dumps(skills or []),
                 json.dumps(metadata or {}),
+                budget_percent,
             ),
         )
         await self.db.commit()
@@ -466,6 +488,64 @@ class Database:
         ) as cur:
             row = await cur.fetchone()
             return row[0] if row and row[0] else 0.0
+
+    async def get_agent_usage_today(self, agent_name: str) -> float:
+        """Sum of estimated_percent consumed by a single agent today (UTC)."""
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).timestamp()
+        async with self.db.execute(
+            """SELECT SUM(estimated_percent) FROM usage_log
+               WHERE agent_name = ? AND timestamp >= ?""",
+            (agent_name, today_start),
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row and row[0] else 0.0
+
+    # ── Agent mailbox (inter-agent messaging) ──
+
+    async def send_agent_message(
+        self,
+        from_agent: str,
+        to_agent: str,
+        body: str,
+        metadata: Optional[Dict] = None,
+    ) -> int:
+        async with self.db.execute(
+            """INSERT INTO agent_messages
+               (from_agent, to_agent, body, timestamp, metadata)
+               VALUES (?, ?, ?, ?, ?)""",
+            (from_agent, to_agent, body, time.time(), json.dumps(metadata or {})),
+        ) as cur:
+            await self.db.commit()
+            return cur.lastrowid  # type: ignore
+
+    async def get_agent_messages(
+        self,
+        agent_name: str,
+        unread_only: bool = True,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        if unread_only:
+            query = (
+                "SELECT * FROM agent_messages "
+                "WHERE to_agent = ? AND read_at IS NULL "
+                "ORDER BY timestamp DESC LIMIT ?"
+            )
+        else:
+            query = (
+                "SELECT * FROM agent_messages WHERE to_agent = ? "
+                "ORDER BY timestamp DESC LIMIT ?"
+            )
+        async with self.db.execute(query, (agent_name, limit)) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def mark_agent_message_read(self, message_id: int) -> None:
+        await self.db.execute(
+            "UPDATE agent_messages SET read_at = ? WHERE id = ?",
+            (time.time(), message_id),
+        )
+        await self.db.commit()
 
     # ── Queued messages ──
 

@@ -123,10 +123,11 @@ class TestQueuePersistence:
 
 class TestMigration:
     @pytest.mark.asyncio
-    async def test_schema_version_is_3(self, db):
+    async def test_schema_version_is_current(self, db):
+        from core.db import _SCHEMA_VERSION
         async with db.db.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
-            assert row[0] == 3
+            assert row[0] == _SCHEMA_VERSION
 
     @pytest.mark.asyncio
     async def test_queued_messages_table_exists(self, db):

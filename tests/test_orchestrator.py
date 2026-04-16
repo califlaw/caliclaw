@@ -180,3 +180,192 @@ async def test_pipeline_real(orch, db):
     assert len(results) == 2
     assert results["p1"].text
     assert results["p2"].text
+
+
+# ── New: pause/resume, budget, retry, mailbox ──
+
+
+@pytest.mark.asyncio
+async def test_pause_resume_cycle(orch, db):
+    await orch.spawn_agent(SpawnRequest(
+        name="pauser", role="r", soul="s", scope="ephemeral",
+    ))
+
+    await orch.pause_agent("pauser")
+    assert (await db.get_agent("pauser"))["status"] == "paused"
+
+    result = await orch.run_agent("pauser", "hi")
+    assert result.exit_code == 1
+    assert "paused" in (result.error or "").lower()
+
+    await orch.resume_agent("pauser")
+    assert (await db.get_agent("pauser"))["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_resume_active_agent_raises(orch):
+    await orch.spawn_agent(SpawnRequest(
+        name="activ", role="r", soul="s", scope="ephemeral",
+    ))
+    with pytest.raises(ValueError, match="not paused"):
+        await orch.resume_agent("activ")
+
+
+@pytest.mark.asyncio
+async def test_pause_missing_agent_raises(orch):
+    with pytest.raises(ValueError, match="not found"):
+        await orch.pause_agent("ghost")
+
+
+@pytest.mark.asyncio
+async def test_run_killed_agent_returns_error(orch, db):
+    await orch.spawn_agent(SpawnRequest(
+        name="dead", role="r", soul="s", scope="ephemeral",
+    ))
+    await db.update_agent_status("dead", "killed")
+
+    result = await orch.run_agent("dead", "hello")
+    assert result.exit_code == 1
+    assert "killed" in (result.error or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_budget_auto_pause(orch, db):
+    import time as _t
+    await orch.spawn_agent(SpawnRequest(
+        name="budgeted", role="r", soul="s", scope="ephemeral",
+        budget_percent=0.5,
+    ))
+
+    # Inject a usage_log row already exceeding the cap today.
+    await db.log_usage(
+        agent_name="budgeted", model="sonnet",
+        duration_ms=100, estimated_percent=1.0,
+    )
+
+    result = await orch.run_agent("budgeted", "hi")
+    assert result.exit_code == 1
+    assert "budget" in (result.error or "").lower()
+
+    agent = await db.get_agent("budgeted")
+    assert agent["status"] == "paused"
+
+
+@pytest.mark.asyncio
+async def test_budget_under_cap_allows_run(orch, db, monkeypatch):
+    await orch.spawn_agent(SpawnRequest(
+        name="under", role="r", soul="s", scope="ephemeral",
+        budget_percent=10.0,
+    ))
+
+    # Stub the pool to avoid running claude; just return success.
+    async def fake_run(config, prompt):
+        from core.agent import AgentResult
+        return AgentResult(text="ok", duration_ms=5)
+    monkeypatch.setattr(orch.pool, "run", fake_run)
+
+    result = await orch.run_agent("under", "hi")
+    assert result.exit_code == 0
+    assert result.error is None
+
+
+@pytest.mark.asyncio
+async def test_swarm_retry_on_transient(orch, db, monkeypatch):
+    from core.agent import AgentResult
+
+    await orch.spawn_agent(SpawnRequest(
+        name="flaky", role="r", soul="s", scope="ephemeral",
+    ))
+
+    calls = {"n": 0}
+
+    async def fake_run_agent(name, prompt, model=None, session_id=None):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return AgentResult(text="", error="timeout after 900s", exit_code=-1)
+        return AgentResult(text="ok", exit_code=0)
+
+    monkeypatch.setattr(orch, "run_agent", fake_run_agent)
+    # Avoid real sleeps during retry backoff
+    monkeypatch.setattr("core.orchestrator.asyncio.sleep", _noop_sleep)
+
+    tasks = [SwarmTask(agent_name="flaky", prompt="go", on_fail="retry", max_retries=2)]
+    results = await orch.run_swarm(tasks)
+
+    assert calls["n"] == 3
+    assert results["flaky"].exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_swarm_no_retry_on_permanent(orch, db, monkeypatch):
+    from core.agent import AgentResult
+
+    await orch.spawn_agent(SpawnRequest(
+        name="broken", role="r", soul="s", scope="ephemeral",
+    ))
+
+    calls = {"n": 0}
+
+    async def fake_run_agent(name, prompt, model=None, session_id=None):
+        calls["n"] += 1
+        return AgentResult(text="", error="Agent broken not found", exit_code=1)
+
+    monkeypatch.setattr(orch, "run_agent", fake_run_agent)
+    monkeypatch.setattr("core.orchestrator.asyncio.sleep", _noop_sleep)
+
+    tasks = [SwarmTask(agent_name="broken", prompt="go", on_fail="retry", max_retries=3)]
+    results = await orch.run_swarm(tasks)
+
+    assert calls["n"] == 1  # no retry — "not found" is not transient
+    assert results["broken"].error is not None
+
+
+@pytest.mark.asyncio
+async def test_swarm_default_no_retry(orch, db, monkeypatch):
+    from core.agent import AgentResult
+
+    await orch.spawn_agent(SpawnRequest(
+        name="default", role="r", soul="s", scope="ephemeral",
+    ))
+
+    calls = {"n": 0}
+
+    async def fake_run_agent(name, prompt, model=None, session_id=None):
+        calls["n"] += 1
+        return AgentResult(text="", error="timeout", exit_code=-1)
+
+    monkeypatch.setattr(orch, "run_agent", fake_run_agent)
+    monkeypatch.setattr("core.orchestrator.asyncio.sleep", _noop_sleep)
+
+    tasks = [SwarmTask(agent_name="default", prompt="go")]  # default on_fail=report
+    results = await orch.run_swarm(tasks)
+
+    assert calls["n"] == 1
+    assert results["default"].error is not None
+
+
+@pytest.mark.asyncio
+async def test_mailbox_send_get_mark(orch, db):
+    mid = await orch.send_message(
+        "researcher", "writer", "draft ready at /tmp/x.md",
+    )
+    assert isinstance(mid, int)
+
+    unread = await orch.get_messages("writer")
+    assert len(unread) == 1
+    assert unread[0]["body"] == "draft ready at /tmp/x.md"
+    assert unread[0]["from_agent"] == "researcher"
+    assert unread[0]["read_at"] is None
+
+    await orch.mark_read(unread[0]["id"])
+
+    still_unread = await orch.get_messages("writer", unread_only=True)
+    assert still_unread == []
+
+    all_msgs = await orch.get_messages("writer", unread_only=False)
+    assert len(all_msgs) == 1
+    assert all_msgs[0]["read_at"] is not None
+
+
+async def _noop_sleep(_):
+    return None
