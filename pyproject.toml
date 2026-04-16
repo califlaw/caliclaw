@@ -1,6 +1,6 @@
 [project]
 name = "caliclaw"
-version = "0.4.9"
+version = "0.4.10"
 description = "Personal AI assistant that lives in Telegram. Agents with memory, souls, and autonomous loops."
 readme = "README.md"
 license = {text = "MIT"}

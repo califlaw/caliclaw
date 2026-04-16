@@ -109,6 +109,7 @@ class AgentProcess:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(working_dir),
                 start_new_session=True,
+                limit=64 * 1024 * 1024,  # 64MB buffer for long JSON lines
             )
 
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -171,6 +172,7 @@ class AgentProcess:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(working_dir),
                 start_new_session=True,
+                limit=64 * 1024 * 1024,  # 64MB buffer for long JSON lines
             )
 
             full_text_parts: List[str] = []
@@ -217,6 +219,16 @@ class AgentProcess:
                     )
                 except asyncio.TimeoutError:
                     raise _IdleTimeout()
+                except asyncio.LimitOverrunError as e:
+                    # Single line exceeded buffer limit (default 64MB).
+                    # Drain the over-long chunk so we can keep streaming.
+                    chunk = await self.process.stdout.readexactly(e.consumed)
+                    drained = chunk + await self.process.stdout.readuntil(b"\n")
+                    logger.warning(
+                        "Agent %s emitted %d-byte line, processing in one piece",
+                        self.config.name, len(drained),
+                    )
+                    line_bytes = drained
                 if not line_bytes:
                     break
                 line = line_bytes.decode("utf-8", errors="replace").strip()
