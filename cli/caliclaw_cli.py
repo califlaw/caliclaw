@@ -707,19 +707,21 @@ async def cmd_status(args: argparse.Namespace) -> None:
     tracker = UsageTracker(db)
     summary = await tracker.get_today_summary()
     agents = await db.list_agents()
-    limit_status = await tracker.check_limits()
 
     ui.banner_small("pulse")
     ui.c.print()
-    pct = summary["total_percent"]
-    bar_color = "green" if pct < 70 else "yellow" if pct < 90 else "red"
-    ui.c.print(f"  Usage:    [{bar_color}]{pct:.1f}%[/{bar_color}] ({limit_status})")
-    ui.c.print(f"  Requests: {summary['total_requests']}")
-    ui.c.print(f"  Agents:   {len(agents)} registered")
+    ui.c.print(f"  Requests today: {summary['total_requests']}")
+    ui.c.print(f"  Agents:         {len(agents)} registered")
 
     if summary["by_model"]:
         ui.c.print()
-        ui.table(["Model", "Requests", "Usage"], [(m, str(d["count"]), f"{d['percent']:.1f}%") for m, d in summary["by_model"].items()])
+        ui.table(
+            ["Model", "Requests", "Duration"],
+            [
+                (m, str(d["count"]), f"{d['duration_ms'] / 1000:.1f}s")
+                for m, d in summary["by_model"].items()
+            ],
+        )
 
     if agents:
         ui.c.print()

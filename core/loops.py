@@ -20,7 +20,6 @@ class LoopConfig:
     model: str = "sonnet"
     max_iterations: int = 20
     max_duration_minutes: int = 120
-    max_usage_percent: float = 15.0
     report_every: int = 5
     system_prompt: str = ""
     working_dir: Optional[str] = None
@@ -75,12 +74,6 @@ class AgentLoop:
             elapsed_minutes = (time.time() - status.start_time) / 60
             if elapsed_minutes > config.max_duration_minutes:
                 status.error = f"Duration limit reached: {config.max_duration_minutes}m"
-                break
-
-            # Check usage limit
-            usage = await self.db.get_usage_today()
-            if usage >= config.max_usage_percent:
-                status.error = f"Usage limit reached: {usage:.1f}%"
                 break
 
             status.iteration = i

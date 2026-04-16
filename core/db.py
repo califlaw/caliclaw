@@ -301,20 +301,18 @@ class Database:
         permissions: Optional[Dict] = None,
         skills: Optional[List[str]] = None,
         metadata: Optional[Dict] = None,
-        budget_percent: Optional[float] = None,
     ) -> None:
         ts = time.time()
         await self.db.execute(
             """INSERT OR REPLACE INTO agents
                (name, scope, project, created_at, soul_path, permissions,
-                skills, metadata, budget_percent)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                skills, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 name, scope, project, ts, soul_path,
                 json.dumps(permissions or {}),
                 json.dumps(skills or []),
                 json.dumps(metadata or {}),
-                budget_percent,
             ),
         )
         await self.db.commit()
@@ -485,19 +483,6 @@ class Database:
         async with self.db.execute(
             "SELECT SUM(estimated_percent) FROM usage_log WHERE timestamp >= ?",
             (today_start,),
-        ) as cur:
-            row = await cur.fetchone()
-            return row[0] if row and row[0] else 0.0
-
-    async def get_agent_usage_today(self, agent_name: str) -> float:
-        """Sum of estimated_percent consumed by a single agent today (UTC)."""
-        today_start = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ).timestamp()
-        async with self.db.execute(
-            """SELECT SUM(estimated_percent) FROM usage_log
-               WHERE agent_name = ? AND timestamp >= ?""",
-            (agent_name, today_start),
         ) as cur:
             row = await cur.fetchone()
             return row[0] if row and row[0] else 0.0

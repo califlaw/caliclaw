@@ -29,7 +29,6 @@ class SpawnRequest:
     model: str = "sonnet"
     allowed_tools: Optional[List[str]] = None
     timeout_seconds: int = 300
-    budget_percent: Optional[float] = None  # daily % cap; None = unlimited
 
 
 @dataclass
@@ -95,12 +94,11 @@ class Orchestrator:
             soul_path=str(soul_dir),
             permissions={"allowed_tools": request.allowed_tools},
             skills=request.skills,
-            budget_percent=request.budget_percent,
         )
 
         logger.info(
-            "Spawned agent %s (scope=%s, model=%s, budget=%s)",
-            request.name, request.scope, request.model, request.budget_percent,
+            "Spawned agent %s (scope=%s, model=%s)",
+            request.name, request.scope, request.model,
         )
         return request.name
 
@@ -152,24 +150,6 @@ class Orchestrator:
                 exit_code=1,
             )
 
-        budget = agent.get("budget_percent")
-        if budget is not None:
-            used = await self.db.get_agent_usage_today(agent_name)
-            if used >= budget:
-                await self.db.update_agent_status(agent_name, "paused")
-                logger.warning(
-                    "Agent %s auto-paused: budget %.2f%% exceeded (used %.2f%%)",
-                    agent_name, budget, used,
-                )
-                return AgentResult(
-                    text="",
-                    error=(
-                        f"Budget exhausted: {used:.2f}%/{budget:.2f}%, "
-                        f"auto-paused"
-                    ),
-                    exit_code=1,
-                )
-
         scope = agent["scope"]
         project = agent.get("project")
         system_prompt = self.souls.load_soul(agent_name, scope, project)
@@ -190,13 +170,10 @@ class Orchestrator:
         result = await self.pool.run(config, prompt)
         await self.db.update_agent_status(agent_name, "active")
 
-        # Log usage with percent estimate so per-agent budget accrues correctly.
-        from monitoring.tracking import MODEL_WEIGHT
         await self.db.log_usage(
             agent_name=agent_name,
             model=config.model,
             duration_ms=result.duration_ms,
-            estimated_percent=MODEL_WEIGHT.get(config.model, 0.3),
         )
 
         return result

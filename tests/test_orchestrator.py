@@ -230,46 +230,6 @@ async def test_run_killed_agent_returns_error(orch, db):
 
 
 @pytest.mark.asyncio
-async def test_budget_auto_pause(orch, db):
-    import time as _t
-    await orch.spawn_agent(SpawnRequest(
-        name="budgeted", role="r", soul="s", scope="ephemeral",
-        budget_percent=0.5,
-    ))
-
-    # Inject a usage_log row already exceeding the cap today.
-    await db.log_usage(
-        agent_name="budgeted", model="sonnet",
-        duration_ms=100, estimated_percent=1.0,
-    )
-
-    result = await orch.run_agent("budgeted", "hi")
-    assert result.exit_code == 1
-    assert "budget" in (result.error or "").lower()
-
-    agent = await db.get_agent("budgeted")
-    assert agent["status"] == "paused"
-
-
-@pytest.mark.asyncio
-async def test_budget_under_cap_allows_run(orch, db, monkeypatch):
-    await orch.spawn_agent(SpawnRequest(
-        name="under", role="r", soul="s", scope="ephemeral",
-        budget_percent=10.0,
-    ))
-
-    # Stub the pool to avoid running claude; just return success.
-    async def fake_run(config, prompt):
-        from core.agent import AgentResult
-        return AgentResult(text="ok", duration_ms=5)
-    monkeypatch.setattr(orch.pool, "run", fake_run)
-
-    result = await orch.run_agent("under", "hi")
-    assert result.exit_code == 0
-    assert result.error is None
-
-
-@pytest.mark.asyncio
 async def test_swarm_retry_on_transient(orch, db, monkeypatch):
     from core.agent import AgentResult
 

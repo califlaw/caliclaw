@@ -80,23 +80,6 @@ Start ephemeral. Promote upward only when justified by reuse.
   - Same agent will help again in this project → `promote` to `project`.
   - Role is broadly useful across projects → `promote` to `global`.
 
-### Budget (optional per-agent daily cap)
-
-Pass `budget_percent` to `SpawnRequest` when you want the agent to
-self-throttle against a share of the daily subscription budget:
-
-    await orch.spawn_agent(SpawnRequest(
-        name="researcher",
-        role="...",
-        soul="...",
-        budget_percent=5.0,   # max 5% of daily budget
-    ))
-
-When the agent's cumulative `estimated_percent` for today crosses the
-cap, the next `run_agent` auto-pauses it (status → `paused`) and returns
-a budget-exhausted error. Inspect usage, then `resume_agent` if you
-want it to resume against the same window, or wait until next day (UTC).
-
 ### Coordination primitives
 
 - **Swarm (parallel DAG)** — `Orchestrator.run_swarm([SwarmTask(...)])`.

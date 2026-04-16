@@ -12,7 +12,6 @@ def test_defaults():
     # the actual code defaults, not whatever the host machine has configured.
     s = Settings(_env_file=None, telegram_bot_token="test")
     assert s.max_concurrent_agents == 3
-    assert s.usage_pause_percent == 80
     assert s.claude_default_model == "sonnet"
 
 

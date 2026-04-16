@@ -123,9 +123,6 @@ class Settings(BaseSettings):
     max_concurrent_agents: int = 3
     max_loop_iterations: int = 20
     max_loop_duration_minutes: int = 120
-    usage_pause_percent: int = 80
-    usage_emergency_percent: int = 90
-    usage_stop_percent: int = 95
 
     # Heartbeat cron expressions
     heartbeat_quick_cron: str = "0 */2 * * *"

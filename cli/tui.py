@@ -194,7 +194,7 @@ class TUI:
             tracker = UsageTracker(db)
             summary = await tracker.get_today_summary()
             agents = await db.list_agents()
-            console.print(f"  Usage: {summary['total_percent']:.1f}%  |  Requests: {summary['total_requests']}  |  Agents: {len(agents)}")
+            console.print(f"  Requests: {summary['total_requests']}  |  Agents: {len(agents)}")
             return True
 
         if command == "/memory":

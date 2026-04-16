@@ -126,13 +126,11 @@ def register(bot: CaliclawBot) -> None:
         summary = await tracker.get_today_summary()
         agents = await bot.db.list_agents()
         active = bot.pool.active_count
-        limit_status = await tracker.check_limits()
 
         text = (
             f"🔱 **caliclaw Status**\n\n"
             f"Model: `{bot._current_model}`\n"
             f"Agents: {active}/{bot.settings.max_concurrent_agents} active, {len(agents)} total\n"
-            f"Usage: {summary['total_percent']:.1f}% ({limit_status})\n"
             f"Requests today: {summary['total_requests']}\n"
             f"Queue: {'processing...' if bot.queue.is_processing('main') else 'empty'}"
         )
@@ -146,13 +144,15 @@ def register(bot: CaliclawBot) -> None:
         tracker = UsageTracker(bot.db)
         summary = await tracker.get_today_summary()
 
-        lines = [f"📊 **Usage today: {summary['total_percent']:.1f}%**\n"]
+        lines = [f"📊 **Requests today: {summary['total_requests']}**\n"]
         for model, data in summary.get("by_model", {}).items():
             dur = data['duration_ms'] / 1000 if data['duration_ms'] else 0
-            lines.append(f"  `{model}`: {data['count']} reqs, ~{data['percent']:.1f}%, {dur:.0f}s")
+            lines.append(f"  `{model}`: {data['count']} reqs, {dur:.0f}s")
 
-        limits = bot.settings
-        lines.append(f"\nLimits: pause {limits.usage_pause_percent}% | emergency {limits.usage_emergency_percent}% | stop {limits.usage_stop_percent}%")
+        lines.append(
+            "\nClaude returns its own rate-limit / budget errors when real "
+            "capacity is exhausted — we surface those with a hint."
+        )
         await message.answer("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
     @router.message(Command("model"))

@@ -21,16 +21,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="30">
 <style>
-body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
-h1 { color: #00d4ff; }
-.card { background: #16213e; border-radius: 8px; padding: 16px; margin: 10px 0; }
-.ok { color: #00ff88; } .warn { color: #ffaa00; } .error { color: #ff4444; }
-.bar { background: #0a0a1a; border-radius: 4px; height: 20px; margin: 4px 0; }
-.bar-fill { background: #00d4ff; height: 100%; border-radius: 4px; transition: width 0.5s; }
-.bar-fill.high { background: #ffaa00; }
-.bar-fill.critical { background: #ff4444; }
-table { width: 100%; border-collapse: collapse; }
-td, th { padding: 8px; text-align: left; border-bottom: 1px solid #2a2a4e; }
+body {{ font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }}
+h1 {{ color: #00d4ff; }}
+.card {{ background: #16213e; border-radius: 8px; padding: 16px; margin: 10px 0; }}
+.ok {{ color: #00ff88; }} .warn {{ color: #ffaa00; }} .error {{ color: #ff4444; }}
+.bar {{ background: #0a0a1a; border-radius: 4px; height: 20px; margin: 4px 0; }}
+.bar-fill {{ background: #00d4ff; height: 100%; border-radius: 4px; transition: width 0.5s; }}
+.bar-fill.high {{ background: #ffaa00; }}
+.bar-fill.critical {{ background: #ff4444; }}
+table {{ width: 100%; border-collapse: collapse; }}
+td, th {{ padding: 8px; text-align: left; border-bottom: 1px solid #2a2a4e; }}
 </style>
 </head>
 <body>
@@ -40,9 +40,8 @@ td, th { padding: 8px; text-align: left; border-bottom: 1px solid #2a2a4e; }
 {system_status}
 </div>
 <div class="card">
-<h3>Usage Today</h3>
-<div class="bar"><div class="bar-fill {usage_class}" style="width:{usage_pct}%"></div></div>
-<p>{usage_pct:.1f}% — {usage_requests} requests</p>
+<h3>Activity Today</h3>
+<p>{usage_requests} requests</p>
 </div>
 <div class="card">
 <h3>Agents</h3>
@@ -65,8 +64,6 @@ async def render_dashboard(db: Database) -> str:
     """Render HTML dashboard."""
     tracker = UsageTracker(db)
     summary = await tracker.get_today_summary()
-    usage_pct = summary["total_percent"]
-    usage_class = "critical" if usage_pct > 90 else "high" if usage_pct > 70 else ""
 
     # Agents
     agents = await db.list_agents()
@@ -122,8 +119,6 @@ async def render_dashboard(db: Database) -> str:
 
     return HTML_TEMPLATE.format(
         system_status=system_status,
-        usage_pct=usage_pct,
-        usage_class=usage_class,
         usage_requests=summary["total_requests"],
         agents_table=agents_rows,
         tasks_table=tasks_rows,
@@ -168,11 +163,11 @@ async def health_check(db: Database) -> dict:
     except OSError:
         pass
 
-    # Usage
+    # Activity
     try:
         tracker = UsageTracker(db)
         summary = await tracker.get_today_summary()
-        checks["checks"]["usage_percent"] = round(summary["total_percent"], 1)
+        checks["checks"]["requests_today"] = summary["total_requests"]
     except (RuntimeError, ValueError, OSError):
         pass
 
