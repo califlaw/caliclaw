@@ -127,14 +127,14 @@ Need scheduled work?
 
 ## Skills marketplace — caliclaw-gym 🏋️
 
-caliclaw ships with **13 default skills** — a professional dev kit, not a newbie bundle:
+caliclaw ships with **14 default skills** — a professional dev kit, not a newbie bundle:
 
 | Core | Unique | Meta |
 |---|---|---|
 | `code` read first, minimal diffs | `incident-response` production fires | `self-evolve` agent creates new skills |
 | `shell` bash mastery | `code-review` review like a senior | |
 | `git` atomic commits, recovery | `automation` glue scripts, webhooks, cron | |
-| `ops` ssh, systemd, deploy | | |
+| `ops` ssh, systemd, deploy | `browser` headless navigation & scraping | |
 | `debug` read errors, isolate | | |
 | `research` authoritative sources | | |
 | `security` secrets, OWASP | | |
