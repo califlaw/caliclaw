@@ -232,5 +232,7 @@ def run_tui() -> None:
     tui = TUI()
     try:
         asyncio.run(tui.start())
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, EOFError):
+        from cli.ui import ui
+        ui.c.print()
+        ui.c.print("[dim]bye 🔱[/dim]")

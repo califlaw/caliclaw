@@ -1075,15 +1075,6 @@ Commands:
         "freedom": lambda a: __import__("cli.commands.freedom", fromlist=["cmd_freedom"]).cmd_freedom(a),
         "backup": cmd_backup, "comeback": cmd_comeback,
     }
-    if args.command in sync_map:
-        sync_map[args.command](args)
-        return
-
-    if args.command == "migrate":
-        from cli.migrate import cmd_migrate
-        cmd_migrate(args)
-        return
-
     # Async commands
     async_map = {
         "init": None,  # special
@@ -1095,6 +1086,15 @@ Commands:
     }
 
     try:
+        if args.command in sync_map:
+            sync_map[args.command](args)
+            return
+
+        if args.command == "migrate":
+            from cli.migrate import cmd_migrate
+            cmd_migrate(args)
+            return
+
         if args.command == "init":
             from cli.commands.init import cmd_init
             asyncio.run(cmd_init(args))
@@ -1112,8 +1112,8 @@ Commands:
     except (KeyboardInterrupt, EOFError):
         from cli.ui import ui
         ui.c.print()
-        ui.warn("Aborted.")
-        sys.exit(130)
+        ui.c.print("[dim]bye 🔱[/dim]")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
