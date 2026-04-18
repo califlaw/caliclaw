@@ -20,6 +20,7 @@ try:
     from rich.live import Live
     from rich.text import Text
     from prompt_toolkit import PromptSession
+    from prompt_toolkit.formatted_text import ANSI
     from prompt_toolkit.history import FileHistory
 except ImportError:
     print("Install dependencies: pip install rich prompt_toolkit")
@@ -75,13 +76,14 @@ class TUI:
 
         model = settings.claude_default_model
 
+        # ANSI-coloured prompt for prompt_toolkit: cyan bold "you" + dim chevron
+        user_prompt = ANSI("\n\x1b[1;36myou\x1b[0m \x1b[2m›\x1b[0m ")
+
         while True:
             try:
                 user_input = await asyncio.get_event_loop().run_in_executor(
                     None,
-                    lambda: self.prompt_session.prompt(
-                        "\n[you] › ",
-                    ),
+                    lambda: self.prompt_session.prompt(user_prompt),
                 )
             except (EOFError, KeyboardInterrupt):
                 break
@@ -126,20 +128,21 @@ class TUI:
             # Run with streaming
             proc = AgentProcess(config)
             console.print()
+            console.print(
+                f"[bold green]bot[/bold green] [dim]› {model}[/dim]",
+                highlight=False,
+            )
 
             accumulated = []
             start_time = time.time()
 
             def on_chunk(chunk: str) -> None:
                 accumulated.append(chunk)
-                # Print inline
                 console.print(chunk, end="", highlight=False)
 
             result = await proc.run_streaming(user_input, on_chunk)
 
             if not accumulated and result.text:
-                # Non-streaming fallback
-                console.print()
                 try:
                     console.print(Markdown(result.text))
                 except (ValueError, TypeError):
@@ -149,6 +152,9 @@ class TUI:
 
             if result.error:
                 console.print(f"[red]Error: {result.error}[/red]")
+
+            # Subtle divider between turns
+            console.rule(style="dim grey30")
 
             # Update session
             if result.session_id:
