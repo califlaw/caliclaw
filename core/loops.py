@@ -18,7 +18,7 @@ class LoopConfig:
     agent_name: str
     task_description: str
     model: str = "sonnet"
-    max_iterations: int = 20
+    max_iterations: Optional[int] = None  # None = run until agent says TASK_COMPLETE
     max_duration_minutes: Optional[int] = None  # None = no wall-clock cap
     report_every: int = 5
     system_prompt: str = ""
@@ -58,14 +58,18 @@ class AgentLoop:
         on_ask_human: Optional[Callable[[str], Coroutine[..., ..., str]]] = None,
     ) -> LoopStatus:
         status = LoopStatus(
-            total_iterations=config.max_iterations,
+            total_iterations=config.max_iterations or 0,
             start_time=time.time(),
         )
 
         session_id = config.session_id
         stuck_count = 0
 
-        for i in range(1, config.max_iterations + 1):
+        i = 0
+        while True:
+            i += 1
+            if config.max_iterations is not None and i > config.max_iterations:
+                break
             if self._cancelled:
                 status.is_cancelled = True
                 break
@@ -149,11 +153,16 @@ class AgentLoop:
         return status
 
     def _build_initial_prompt(self, config: LoopConfig) -> str:
+        budget_line = (
+            f"- You have up to {config.max_iterations} iterations\n"
+            if config.max_iterations is not None
+            else "- No iteration cap — run as long as you're making progress\n"
+        )
         return (
             f"You are working in an autonomous loop to complete a task.\n\n"
             f"TASK: {config.task_description}\n\n"
             f"RULES:\n"
-            f"- You have up to {config.max_iterations} iterations\n"
+            f"{budget_line}"
             f"- Work step by step, one meaningful action per iteration\n"
             f"- When the task is FULLY COMPLETE, include the exact phrase: TASK_COMPLETE\n"
             f"- If you are stuck and need human input, include: NEED_HUMAN_INPUT: <your question>\n"
@@ -164,9 +173,13 @@ class AgentLoop:
     def _build_continuation_prompt(
         self, config: LoopConfig, status: LoopStatus, iteration: int
     ) -> str:
+        header = (
+            f"Iteration {iteration}/{config.max_iterations}."
+            if config.max_iterations is not None
+            else f"Iteration {iteration} (no fixed cap)."
+        )
         return (
-            f"Iteration {iteration}/{config.max_iterations}. "
-            f"Continue working on the task.\n\n"
+            f"{header} Continue working on the task.\n\n"
             f"When FULLY COMPLETE, say: TASK_COMPLETE\n"
             f"If stuck, say: NEED_HUMAN_INPUT: <question>"
         )
