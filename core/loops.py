@@ -19,7 +19,7 @@ class LoopConfig:
     task_description: str
     model: str = "sonnet"
     max_iterations: int = 20
-    max_duration_minutes: int = 120
+    max_duration_minutes: Optional[int] = None  # None = no wall-clock cap
     report_every: int = 5
     system_prompt: str = ""
     working_dir: Optional[str] = None
@@ -70,11 +70,12 @@ class AgentLoop:
                 status.is_cancelled = True
                 break
 
-            # Check duration limit
-            elapsed_minutes = (time.time() - status.start_time) / 60
-            if elapsed_minutes > config.max_duration_minutes:
-                status.error = f"Duration limit reached: {config.max_duration_minutes}m"
-                break
+            # Check duration limit (None = unlimited)
+            if config.max_duration_minutes is not None:
+                elapsed_minutes = (time.time() - status.start_time) / 60
+                if elapsed_minutes > config.max_duration_minutes:
+                    status.error = f"Duration limit reached: {config.max_duration_minutes}m"
+                    break
 
             status.iteration = i
 

@@ -122,7 +122,6 @@ class Settings(BaseSettings):
     # Limits
     max_concurrent_agents: int = 3
     max_loop_iterations: int = 20
-    max_loop_duration_minutes: int = 120
 
     # Heartbeat cron expressions
     heartbeat_quick_cron: str = "0 */2 * * *"
