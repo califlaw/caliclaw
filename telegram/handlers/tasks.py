@@ -106,13 +106,43 @@ def register(bot: CaliclawBot) -> None:
         if not bot._check_allowed(message):
             return
         args = (message.text or "").split(maxsplit=1)
-        if len(args) < 2:
-            await message.answer("Usage: /loop `<task description>`\nAgent will work in a loop until done.", parse_mode=ParseMode.MARKDOWN)
-            return
-        task_desc = args[1].strip()
         chat_id = message.chat.id
 
-        await message.answer(f"🔄 Starting loop: _{task_desc}_", parse_mode=ParseMode.MARKDOWN)
+        if len(args) < 2:
+            await message.answer(
+                "Usage:\n"
+                "/loop `<task description>` — start a loop\n"
+                "/loop stop — cancel the loop running in this chat\n"
+                "/loop status — show current loop state",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        sub = args[1].strip()
+        sub_lower = sub.lower()
+
+        if sub_lower == "stop":
+            loop_runner = bot._active_loops.get(chat_id)
+            if not loop_runner:
+                await message.answer("No loop running in this chat.")
+                return
+            loop_runner.cancel()
+            await message.answer("🛑 Loop cancel requested.")
+            return
+
+        if sub_lower == "status":
+            loop_runner = bot._active_loops.get(chat_id)
+            if not loop_runner:
+                await message.answer("No loop running in this chat.")
+                return
+            await message.answer("🔄 Loop active. Use `/loop stop` to cancel.")
+            return
+
+        task_desc = sub
+        await message.answer(
+            f"🔄 Starting loop: _{task_desc}_\n\nSend `/loop stop` to cancel.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
 
         async def run_loop() -> None:
             from core.loops import AgentLoop, LoopConfig
@@ -126,7 +156,12 @@ def register(bot: CaliclawBot) -> None:
             )
 
             async def on_progress(status) -> None:
-                await bot.bot.send_message(chat_id, f"🔄 Iteration {status.iteration}/{status.total_iterations}")
+                label = (
+                    f"{status.iteration}/{status.total_iterations}"
+                    if status.total_iterations
+                    else f"{status.iteration}"
+                )
+                await bot.bot.send_message(chat_id, f"🔄 Iteration {label}")
 
             try:
                 status = await loop_runner.run(config, on_progress=on_progress)

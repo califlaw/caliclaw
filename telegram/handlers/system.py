@@ -100,7 +100,7 @@ def register(bot: CaliclawBot) -> None:
             "/promote — promote agent\n\n"
             "**Tasks:**\n"
             "/tasks — scheduled tasks\n"
-            "/loop — autonomous loop\n"
+            "/loop — autonomous loop (`/loop stop` to cancel)\n"
             "/cron — schedule task\n"
             "/pause /resume — control tasks\n\n"
             "**System:**\n"
