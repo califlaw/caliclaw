@@ -1,6 +1,6 @@
 [project]
 name = "caliclaw"
-version = "0.4.12"
+version = "0.4.13"
 description = "Personal AI assistant that lives in Telegram. Agents with memory, souls, and autonomous loops."
 readme = "README.md"
 license = {text = "MIT"}
@@ -29,6 +29,7 @@ dependencies = [
     "prompt_toolkit>=3.0,<4.0",
     "rich>=13.0,<15.0",
     "certifi>=2024.0",
+    "pillow>=10.0,<12.0",
 ]
 
 [project.scripts]

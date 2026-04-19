@@ -580,6 +580,7 @@ class CaliclawBot:
         "unauthorized": "Auth expired. Run: claude login",
         "not authenticated": "Not logged in. Run: claude login",
         "could not connect": "Cannot reach the API. Check your internet connection.",
+        "could not process image": "Image format or size not supported. Try sending a smaller JPEG/PNG.",
     }
 
     def _get_error_hint(self, error: str) -> str:

@@ -39,8 +39,12 @@ def register(bot: CaliclawBot) -> None:
         file = await bot.bot.get_file(photo.file_id)
         media_dir = bot.settings.workspace_dir / "media"
         media_dir.mkdir(parents=True, exist_ok=True)
-        path = media_dir / f"photo_{int(time.time())}_{photo.file_id[-8:]}.jpg"
-        await bot.bot.download_file(file.file_path, str(path))
+        raw_path = media_dir / f"photo_{int(time.time())}_{photo.file_id[-8:]}.jpg"
+        await bot.bot.download_file(file.file_path, str(raw_path))
+
+        from media.images import normalize
+        path = normalize(raw_path)
+
         await bot._process_user_message(
             message,
             f"User sent a photo saved at {path}. Caption: {caption}",
