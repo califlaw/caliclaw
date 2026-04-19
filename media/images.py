@@ -67,3 +67,63 @@ def normalize(path: Path) -> Path:
     except (OSError, UnidentifiedImageError, ValueError) as e:
         logger.warning("Image normalize failed for %s: %s", path, e)
         return path
+
+
+async def describe_with_haiku(path: Path, caption: str = "") -> str:
+    """Run an isolated `claude -p --model haiku` to describe an image as text.
+
+    Returns the description (also persisted to <path>.desc.txt for the main
+    agent to reference). Empty string on any failure — caller falls back to
+    the raw-file path flow.
+
+    Runs in its own one-shot Claude session — no --session-id — so a failure
+    here can never poison the main chat's Claude session. If haiku itself
+    trips on the image (unlikely: v0.4.13 normalize already produces a safe
+    JPEG), we swallow the error and return "".
+    """
+    from core.agent import AgentConfig, AgentProcess
+
+    prompt = (
+        f"Read the image at: {path}\n\n"
+        f"User caption: {caption or '(none)'}\n\n"
+        "Describe it comprehensively in plain text: subjects, layout, any "
+        "visible text (verbatim), colors, mood, distinctive details, and "
+        "anything that might matter to a follow-up question. Be specific "
+        "enough that a reader who can't see the image could answer most "
+        "questions about it. Output plain prose — no markdown, no JSON."
+    )
+
+    config = AgentConfig(
+        name="image-describer",
+        model="haiku",
+        system_prompt=(
+            "You describe images as text so another agent can reason about "
+            "them without needing vision. Be factual and thorough."
+        ),
+        timeout_seconds=60,
+        idle_timeout_seconds=60,
+        working_dir=path.parent,
+    )
+
+    try:
+        proc = AgentProcess(config)
+        result = await proc.run(prompt)
+    except (OSError, RuntimeError, ValueError) as e:
+        logger.warning("Haiku describe failed for %s: %s", path, e)
+        return ""
+
+    text = (result.text or "").strip()
+    if not text or result.error:
+        logger.warning(
+            "Haiku describe returned no text for %s (error=%s)",
+            path, result.error,
+        )
+        return ""
+
+    try:
+        desc_path = path.with_name(path.name + ".desc.txt")
+        desc_path.write_text(text, encoding="utf-8")
+    except OSError:
+        pass  # non-fatal — description still returned
+
+    return text

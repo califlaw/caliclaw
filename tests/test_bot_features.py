@@ -148,3 +148,32 @@ class TestHealthCheck:
         assert "checks" in result
         assert result["checks"]["database"] == "ok"
         assert "timestamp" in result
+
+
+# ── API error classifier ──
+
+class TestClassifyApiError:
+    # The method only reads the class-level _API_ERROR_CLASSIFIERS; no bot
+    # instance is required — avoids aiogram router singleton collisions.
+    def _classify(self, text: str):
+        from telegram.bot import CaliclawBot
+        return CaliclawBot._classify_api_error(CaliclawBot, text)
+
+    def test_classify_image_error(self):
+        text = (
+            'API Error: 400 {"type":"error","error":{"type":'
+            '"invalid_request_error","message":"Could not process image"}}'
+        )
+        assert self._classify(text) == "image"
+
+    def test_classify_generic_api_error(self):
+        assert self._classify("API Error: 500 internal_server_error") == "generic"
+
+    def test_classify_rate_limit(self):
+        assert self._classify(
+            '{"type":"error","error":{"type":"rate_limit_error"}}'
+        ) == "rate_limit"
+
+    def test_classify_normal_text_returns_none(self):
+        assert self._classify("Hello, here's the answer to your question.") is None
+        assert self._classify("") is None

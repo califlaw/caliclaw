@@ -42,13 +42,26 @@ def register(bot: CaliclawBot) -> None:
         raw_path = media_dir / f"photo_{int(time.time())}_{photo.file_id[-8:]}.jpg"
         await bot.bot.download_file(file.file_path, str(raw_path))
 
-        from media.images import normalize
+        from media.images import normalize, describe_with_haiku
         path = normalize(raw_path)
 
+        # Pre-describe via haiku so the main session never has to load the
+        # raw image — protects the session from "Could not process image"
+        # poisoning that would kill every subsequent turn.
+        description = await describe_with_haiku(path, caption=caption)
+
+        if description:
+            prompt = (
+                f"User sent a photo. Caption: {caption}\n"
+                f"Raw file (fallback only): {path}\n\n"
+                f"[Image description — prefer this over reading the raw file]\n"
+                f"{description}"
+            )
+        else:
+            prompt = f"User sent a photo saved at {path}. Caption: {caption}"
+
         await bot._process_user_message(
-            message,
-            f"User sent a photo saved at {path}. Caption: {caption}",
-            media_path=str(path),
+            message, prompt, media_path=str(path),
         )
 
     @router.message(F.text)

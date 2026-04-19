@@ -330,6 +330,23 @@ class CaliclawBot:
             session = await self.db.get_session(session_id)
             claude_session_id = session.get("claude_session_id") if session else None
 
+            # Memory handoff after an auto-recovered session reset:
+            # a summary was written to session.summary while claude_session_id
+            # was cleared. Consume it exactly once so the fresh Claude session
+            # picks up mid-conversation with a gist of the prior chat.
+            handoff = (
+                session.get("summary")
+                if session and claude_session_id is None
+                else None
+            )
+            if handoff:
+                prompt = (
+                    f"[Prior context recovered from a reset session]\n"
+                    f"{handoff}\n\n"
+                    f"[Current user message]\n{prompt}"
+                )
+                await self.db.update_session(session_id, summary=None)
+
             # If directory switched, inject conversation context
             if self._inject_context:
                 context = await self._build_context_summary(session_id)
@@ -385,6 +402,17 @@ class CaliclawBot:
                 return
 
             final_text = result.text or accumulated_text or "No response."
+
+            # API errors sometimes land in result.text as plain text (claude -p
+            # prints them to stdout and exits 0). Classify and recover before
+            # the error JSON reaches the user.
+            api_kind = self._classify_api_error(final_text) if result.text else None
+            if api_kind is not None:
+                await self._recover_from_api_error(
+                    chat_id, session_id, final_text, api_kind, response_msg,
+                )
+                return
+
             if result.error:
                 hint = self._get_error_hint(result.error)
                 final_text = f"⚠️ {hint}\n\n{final_text}" if hint else f"⚠️ Error: {result.error}\n\n{final_text}"
@@ -589,6 +617,73 @@ class CaliclawBot:
             if pattern in err_lower:
                 return hint
         return ""
+
+    _API_ERROR_CLASSIFIERS = (
+        ("image", ("could not process image",)),
+        ("auth", ("authentication_error", "invalid api key")),
+        ("rate_limit", ("rate_limit_error",)),
+        ("generic", ("api error:", "invalid_request_error")),
+    )
+
+    def _classify_api_error(self, text: str) -> Optional[str]:
+        """Return a short tag for API errors that Claude CLI printed as text
+        (it exits 0 and puts the error in stdout). None for normal output."""
+        lower = text.lower()
+        for tag, patterns in self._API_ERROR_CLASSIFIERS:
+            if any(p in lower for p in patterns):
+                return tag
+        return None
+
+    async def _recover_from_api_error(
+        self,
+        chat_id: int,
+        session_id: str,
+        raw_text: str,
+        kind: str,
+        response_msg: Optional[Message],
+    ) -> None:
+        """Drop the poisoned Claude session, compact prior messages into a
+        haiku summary, and tell the user — all without persisting the raw
+        API-error JSON as an assistant message (that would poison future
+        summarizations)."""
+        logger.warning(
+            "API error (%s) in chat %d, recovering: %s",
+            kind, chat_id, raw_text[:200],
+        )
+
+        await self.db.update_session(session_id, claude_session_id=None)
+
+        try:
+            from intelligence.compaction import ConversationCompactor
+            compactor = ConversationCompactor(self.db, self.pool)
+            summary = await compactor._summarize_session(session_id)
+            if summary:
+                await self.db.update_session(session_id, summary=summary)
+        except (RuntimeError, OSError, ValueError) as e:
+            logger.warning("Could not summarize before recovery: %s", e)
+
+        hint = self._get_error_hint(raw_text)
+        if kind == "image":
+            msg = (
+                "⚠️ Previous turn hit an image issue. I reset the Claude "
+                "session and kept a summary of what we were on — try again."
+            )
+        elif hint:
+            msg = f"⚠️ {hint}"
+        else:
+            msg = (
+                f"⚠️ Claude API error ({kind}). Session reset — try again."
+            )
+        try:
+            if response_msg is not None:
+                try:
+                    await response_msg.edit_text(msg)
+                    return
+                except aiogram.exceptions.TelegramBadRequest:
+                    pass
+            await self.bot.send_message(chat_id, msg)
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
+            pass
 
     async def _keep_typing(self, chat_id: int, my_epoch: int) -> None:
         try:
