@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
@@ -138,6 +138,12 @@ class Settings(BaseSettings):
 
     # Vault
     vault_key_path: Path = Path.home() / ".caliclaw" / "vault.key"
+
+    # Obsidian integration (optional). When set, caliclaw can read from /
+    # write structured notes into the user's Obsidian vault.
+    obsidian_vault_path: Optional[Path] = None
+    obsidian_daily_notes_dir: str = "Daily"     # subdir inside vault
+    obsidian_inbox_dir: str = "Inbox/caliclaw"  # where bot writes new notes
 
     # Dashboard
     dashboard_port: int = 8080
