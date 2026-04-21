@@ -352,6 +352,10 @@ def cmd_skills(args: argparse.Namespace) -> None:
             print(f"Enabled: {arg}  (granted: {', '.join(perms)})")
         else:
             print(f"Enabled: {arg}")
+        # Per-skill post-enable setup (e.g. prompt for config env vars)
+        if arg == "obsidian":
+            from cli.commands.obsidian import configure_after_enable
+            configure_after_enable(settings.project_root)
 
     elif arg in skill_names and extra == "off":
         enabled.discard(arg)

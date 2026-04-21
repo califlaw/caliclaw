@@ -117,3 +117,25 @@ def test_list_recent(vault):
     write_note("Fresh Note", "body")
     recent = obsidian.list_recent(limit=5)
     assert any("Fresh Note" in p.name for p in recent)
+
+
+def test_upsert_env_new_key(tmp_path):
+    from cli.commands.obsidian import _upsert_env, _get_env
+    _upsert_env(tmp_path, "OBSIDIAN_VAULT_PATH", "/home/user/Vault")
+    assert _get_env(tmp_path, "OBSIDIAN_VAULT_PATH") == "/home/user/Vault"
+    assert (tmp_path / ".env").read_text().endswith(
+        "OBSIDIAN_VAULT_PATH=/home/user/Vault\n"
+    )
+
+
+def test_upsert_env_replaces_existing(tmp_path):
+    from cli.commands.obsidian import _upsert_env, _get_env
+    (tmp_path / ".env").write_text(
+        "TELEGRAM_BOT_TOKEN=abc\nOBSIDIAN_VAULT_PATH=/old/path\nTZ=UTC\n"
+    )
+    _upsert_env(tmp_path, "OBSIDIAN_VAULT_PATH", "/new/path")
+    assert _get_env(tmp_path, "OBSIDIAN_VAULT_PATH") == "/new/path"
+    content = (tmp_path / ".env").read_text()
+    assert "/old/path" not in content
+    assert "TELEGRAM_BOT_TOKEN=abc" in content
+    assert "TZ=UTC" in content
