@@ -139,3 +139,47 @@ def test_upsert_env_replaces_existing(tmp_path):
     assert "/old/path" not in content
     assert "TELEGRAM_BOT_TOKEN=abc" in content
     assert "TZ=UTC" in content
+
+
+def test_detect_vaults_reads_obsidian_json(tmp_path, monkeypatch):
+    """Simulate a Linux Obsidian config listing two vaults, one newer."""
+    import json as _json
+    from cli.commands import obsidian as ob_cli
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    v_older = tmp_path / "Older"
+    v_newer = tmp_path / "Newer"
+    v_older.mkdir()
+    v_newer.mkdir()
+
+    cfg_dir = fake_home / ".config" / "obsidian"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "obsidian.json").write_text(_json.dumps({
+        "vaults": {
+            "abc": {"path": str(v_older), "ts": 1000, "open": False},
+            "def": {"path": str(v_newer), "ts": 2000, "open": True},
+        },
+    }))
+
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+
+    result = ob_cli.detect_vaults()
+    assert result[0] == v_newer
+    assert v_older in result
+
+
+def test_detect_vaults_fallback_scan(tmp_path, monkeypatch):
+    """No Obsidian config — fall back to scanning ~/Documents for .obsidian/."""
+    from cli.commands import obsidian as ob_cli
+
+    fake_home = tmp_path / "home"
+    (fake_home / "Documents" / "MyVault" / ".obsidian").mkdir(parents=True)
+
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+
+    result = ob_cli.detect_vaults()
+    assert len(result) == 1
+    assert result[0].name == "MyVault"
