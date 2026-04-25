@@ -165,6 +165,19 @@ caliclaw model set haiku          # switch to haiku (fast, cheap)
 
 The CLI persists your choice in `.env` and auto-restarts the bot if it's running. You can also switch runtime-only via `/model` in Telegram.
 
+## Different LLM providers
+
+Don't want to pay Anthropic directly? Route every `claude -p` call through OpenRouter or your own proxy:
+
+```bash
+caliclaw llm                                    # show current provider
+caliclaw llm openrouter sk-or-v1-abc...         # route through OpenRouter (Claude models)
+caliclaw llm custom http://localhost:3456       # claude-code-router / LiteLLM / your own
+caliclaw llm anthropic                          # reset to Claude direct
+```
+
+caliclaw exports `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` into every Claude Code subprocess (main agent, image-describer, swarm). OpenRouter's `/v1/messages` endpoint is Anthropic-compatible but only serves Claude models — for GPT/Gemini/Llama, point at a translating proxy like [claude-code-router](https://github.com/musistudio/claude-code-router) or [LiteLLM](https://github.com/BerriAI/litellm) and use `caliclaw llm custom`.
+
 ## Migration
 
 Coming from another *claw project?

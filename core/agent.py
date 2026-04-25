@@ -53,6 +53,22 @@ class AgentProcess:
         self._start_time: float = 0
         self._output_chunks: List[str] = []
 
+    def _build_env(self) -> Dict[str, str]:
+        """Return the env dict for the subprocess.
+
+        Inherits the parent env, then overlays ANTHROPIC_BASE_URL /
+        ANTHROPIC_AUTH_TOKEN if the user pointed caliclaw at a different
+        LLM endpoint (OpenRouter, claude-code-router, etc.). Claude Code
+        reads these natively, so a single env overlay reroutes every
+        invocation — main agent, haiku describer, swarm children.
+        """
+        env = os.environ.copy()
+        if self._settings.anthropic_base_url:
+            env["ANTHROPIC_BASE_URL"] = self._settings.anthropic_base_url
+        if self._settings.anthropic_auth_token:
+            env["ANTHROPIC_AUTH_TOKEN"] = self._settings.anthropic_auth_token
+        return env
+
     def _build_command(self, prompt: str) -> List[str]:
         cfg = self.config
         settings = self._settings
@@ -110,6 +126,7 @@ class AgentProcess:
                 cwd=str(working_dir),
                 start_new_session=True,
                 limit=64 * 1024 * 1024,  # 64MB buffer for long JSON lines
+                env=self._build_env(),
             )
 
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -173,6 +190,7 @@ class AgentProcess:
                 cwd=str(working_dir),
                 start_new_session=True,
                 limit=64 * 1024 * 1024,  # 64MB buffer for long JSON lines
+                env=self._build_env(),
             )
 
             full_text_parts: List[str] = []

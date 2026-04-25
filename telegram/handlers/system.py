@@ -92,6 +92,7 @@ def register(bot: CaliclawBot) -> None:
             "**Session:**\n"
             "/fresh — new session\n"
             "/squeeze — compress context\n"
+            "/context — show context size & health\n"
             "/reset — reset state\n\n"
             "**Agents:**\n"
             "/agents — list agents\n"
@@ -107,6 +108,7 @@ def register(bot: CaliclawBot) -> None:
             "/status — system status\n"
             "/usage — token usage\n"
             "/model — switch model\n"
+            "/llm — switch LLM provider (anthropic / openrouter / custom)\n"
             "/memory — show memory\n"
             "/soul — show soul\n"
             "/skills — list skills\n"
@@ -224,6 +226,112 @@ def register(bot: CaliclawBot) -> None:
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=keyboard,
             )
+
+    @router.message(Command("llm"))
+    async def cmd_llm(message: Message) -> None:
+        """Switch the LLM provider endpoint (Anthropic direct / OpenRouter / custom).
+
+        Forms:
+            /llm                           — show current provider
+            /llm anthropic                 — reset to Claude direct
+            /llm openrouter <key>          — route through OpenRouter
+            /llm custom <url> [token]      — point at any Anthropic-compat proxy
+        """
+        if not bot._check_allowed(message):
+            return
+
+        from cli.commands.llm import _upsert_env, _get_env
+
+        parts = (message.text or "").split(maxsplit=3)
+        action = parts[1].strip().lower() if len(parts) >= 2 else ""
+        arg1 = parts[2].strip() if len(parts) >= 3 else ""
+        arg2 = parts[3].strip() if len(parts) >= 4 else ""
+
+        root = bot.settings.project_root
+
+        def _mask(tok: str) -> str:
+            if not tok:
+                return "—"
+            return tok[:6] + "…" + tok[-4:] if len(tok) > 12 else "set"
+
+        # Status
+        if not action or action == "status":
+            base = _get_env(root, "ANTHROPIC_BASE_URL")
+            tok = _get_env(root, "ANTHROPIC_AUTH_TOKEN")
+            if not base:
+                provider = "anthropic (default)"
+                detail = "Using Claude Code login or ANTHROPIC_API_KEY"
+            else:
+                provider = base
+                detail = f"Token: `{_mask(tok)}`"
+            await message.answer(
+                f"*LLM provider*\n"
+                f"Endpoint: `{provider}`\n"
+                f"{detail}\n\n"
+                f"Switch:\n"
+                f"`/llm anthropic`\n"
+                f"`/llm openrouter <sk-or-...>`\n"
+                f"`/llm custom <url> [token]`",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        if action == "anthropic":
+            _upsert_env(root, "ANTHROPIC_BASE_URL", None)
+            _upsert_env(root, "ANTHROPIC_AUTH_TOKEN", None)
+            bot.settings.anthropic_base_url = None
+            bot.settings.anthropic_auth_token = None
+            await message.answer("✅ Reset to Anthropic direct.")
+            return
+
+        if action == "openrouter":
+            if not arg1:
+                await message.answer(
+                    "Need an OpenRouter key.\n"
+                    "`/llm openrouter sk-or-v1-...`",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                return
+            url = "https://openrouter.ai/api/v1"
+            _upsert_env(root, "ANTHROPIC_BASE_URL", url)
+            _upsert_env(root, "ANTHROPIC_AUTH_TOKEN", arg1)
+            bot.settings.anthropic_base_url = url
+            bot.settings.anthropic_auth_token = arg1
+            await message.answer(
+                f"✅ Routing through OpenRouter.\n"
+                f"Endpoint: `{url}`\n"
+                f"Token: `{_mask(arg1)}`\n\n"
+                f"⚠️ The key is in your chat history — delete the message if it bothers you.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        if action == "custom":
+            if not arg1:
+                await message.answer(
+                    "Need a URL.\n"
+                    "`/llm custom http://localhost:3456 [token]`",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                return
+            _upsert_env(root, "ANTHROPIC_BASE_URL", arg1)
+            _upsert_env(root, "ANTHROPIC_AUTH_TOKEN", arg2 or None)
+            bot.settings.anthropic_base_url = arg1
+            bot.settings.anthropic_auth_token = arg2 or None
+            tok_line = f"Token: `{_mask(arg2)}`" if arg2 else "No token (proxy must accept unauthenticated)"
+            await message.answer(
+                f"✅ Routing through custom endpoint.\n"
+                f"Endpoint: `{arg1}`\n"
+                f"{tok_line}",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        await message.answer(
+            f"Unknown provider: `{action}`\n"
+            f"Try: `/llm` for status.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
 
     @router.message(Command("restart"))
     async def cmd_restart(message: Message) -> None:

@@ -16,33 +16,60 @@ logger = logging.getLogger(__name__)
 
 
 class ConversationCompactor:
-    """Compacts long conversations by summarizing and archiving."""
+    """Compacts long conversations by archiving + lossless verbatim handoff.
 
-    def __init__(self, db: Database, pool: AgentPool):
+    The compaction sequence:
+      1. Archive the full conversation to `<workspace>/conversations/*.md`
+         (audit trail; nothing depends on this file at runtime)
+      2. Build a verbatim replay of the most recent N messages within a
+         char budget — see `core.handoff.build_lossless_handoff`
+      3. Drop the Claude-side session id (`claude_session_id = NULL`) so
+         the next turn starts a fresh Claude session — context bloat gone
+      4. Store the replay in `sessions.summary`; the bot consumes it once
+         on the next user message and prepends it to the prompt
+
+    Net effect: Claude reasoning becomes lean again, but no information is
+    lost from the user's point of view — the next turn picks up with the
+    full recent dialogue restored.
+    """
+
+    def __init__(self, db: Database):
         self.db = db
-        self.pool = pool
         self._max_messages_before_compaction = 100
         self._archive_dir = get_settings().workspace_dir / "conversations"
         self._archive_dir.mkdir(parents=True, exist_ok=True)
 
-    async def check_and_compact(self, session_id: str) -> bool:
-        """Check if session needs compaction and do it. Returns True if compacted."""
+    async def check_and_compact(self, session_id: str, force: bool = False) -> bool:
+        """Compact if needed (or always when `force=True`). Returns True if
+        compaction actually ran. Manual `/squeeze` passes force=True so the
+        user's explicit intent is honored regardless of message count."""
         count = await self.db.count_messages(session_id)
-        if count < self._max_messages_before_compaction:
+        if not force and count < self._max_messages_before_compaction:
             return False
 
-        logger.info("Session %s has %d messages, compacting...", session_id, count)
+        logger.info(
+            "Session %s has %d messages, compacting (force=%s)...",
+            session_id, count, force,
+        )
 
-        # Archive full conversation first
         await self._archive_conversation(session_id)
 
-        # Summarize
-        summary = await self._summarize_session(session_id)
+        from core.handoff import build_lossless_handoff
+        handoff = await build_lossless_handoff(self.db, session_id)
 
-        # Update session
-        await self.db.update_session(session_id, summary=summary, status="compacted")
+        # Drop Claude-side session — the bloated history goes with it.
+        # Store the verbatim replay; bot picks it up on the next turn.
+        await self.db.update_session(
+            session_id,
+            claude_session_id=None,
+            summary=handoff,
+            status="compacted",
+        )
 
-        logger.info("Session %s compacted. Summary: %s...", session_id, summary[:100])
+        logger.info(
+            "Session %s compacted: claude_session_id cleared, "
+            "%d-char handoff staged", session_id, len(handoff),
+        )
         return True
 
     async def _archive_conversation(self, session_id: str) -> Path:
@@ -64,25 +91,6 @@ class ConversationCompactor:
         path.write_text("\n".join(lines), encoding="utf-8")
         logger.info("Archived conversation to %s", path)
         return path
-
-    async def _summarize_session(self, session_id: str) -> str:
-        """Use haiku to create a brief summary."""
-        messages = await self.db.get_messages(session_id, limit=50)
-
-        conversation = "\n".join(
-            f"{m['role']}: {m['content'][:200]}" for m in messages[-20:]
-        )
-
-        config = AgentConfig(
-            name="compactor",
-            model="haiku",
-            system_prompt="Summarize this conversation in 3-5 bullet points. Focus on decisions made and outcomes.",
-            timeout_seconds=30,
-        )
-
-        result = await self.pool.run(config, f"Summarize:\n{conversation}")
-        return result.text if result.text else "No summary available."
-
 
 class DreamingEngine:
     """Nightly memory consolidation — reviews conversations and updates memory."""

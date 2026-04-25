@@ -546,9 +546,15 @@ class CaliclawBot:
     async def _send_one(
         self, chat_id: int, text: str, first_message: Optional[Message] = None,
     ) -> None:
-        """Send/edit a single message, trying Markdown first, falling back to plain."""
-        # Try Markdown; on parse failure resend as plain text (Claude often emits
-        # unbalanced markers like lone backticks or underscores in identifiers).
+        """Send/edit a single message, trying Markdown first, falling back to plain.
+
+        Falls back to plain text on the SAME message (edit with parse_mode=None)
+        rather than sending a fresh one — sending a new message after a failed
+        Markdown edit produces a duplicate in the chat (the streaming message
+        stays put while the fallback adds a second plain-text copy below it).
+        """
+        # Claude often emits unbalanced backticks/underscores; if Markdown
+        # parsing trips, the same edit/send retried as plain text always works.
         for parse_mode in (ParseMode.MARKDOWN, None):
             try:
                 if first_message is not None:
@@ -558,13 +564,65 @@ class CaliclawBot:
                 await self.bot.send_message(chat_id, text, parse_mode=parse_mode)
                 return
             except aiogram.exceptions.TelegramBadRequest as e:
-                err = str(e)
+                err = str(e).lower()
                 if "message is not modified" in err:
                     return
-                if "can't parse entities" in err.lower():
-                    first_message = None  # edit with different parse_mode is racy; resend
+                if "can't parse entities" in err:
+                    # Retry the SAME operation (edit or send) as plain text.
                     continue
                 raise
+
+    @staticmethod
+    def _split_for_telegram(text: str, max_len: int = 4096) -> list[str]:
+        """Split text into Telegram-sized chunks without breaking fenced
+        code blocks. Prefers paragraph > line > word boundaries.
+
+        If a chunk would end mid-``` block, the block is closed at the end
+        of the chunk and reopened at the start of the next so Markdown
+        rendering stays intact across chunks.
+        """
+        if len(text) <= max_len:
+            return [text]
+
+        # Reserve room for fence wrapping (4 chars open + 4 chars close = 8)
+        inner_max = max_len - 12
+
+        raw_chunks: list[str] = []
+        pos = 0
+        while pos < len(text):
+            remaining = len(text) - pos
+            if remaining <= inner_max:
+                raw_chunks.append(text[pos:])
+                break
+            window_end = pos + inner_max
+            # Best split: paragraph > line > space. Accept any split that's
+            # at least halfway through the window; below that, hard-cut.
+            min_split = pos + inner_max // 2
+            split = text.rfind("\n\n", pos, window_end)
+            if split < min_split:
+                split = text.rfind("\n", pos, window_end)
+            if split < min_split:
+                split = text.rfind(" ", pos, window_end)
+            if split < min_split:
+                split = window_end
+            raw_chunks.append(text[pos:split].rstrip())
+            # Skip the break character we split on
+            while split < len(text) and text[split] in " \n":
+                split += 1
+            pos = split
+
+        # Wrap chunks with fence continuations so ```code``` survives splits.
+        result: list[str] = []
+        in_block = False
+        for chunk in raw_chunks:
+            prefix = "```\n" if in_block else ""
+            # Each ``` toggles block state
+            toggle = chunk.count("```") % 2 == 1
+            will_be_in_block = in_block ^ toggle
+            suffix = "\n```" if will_be_in_block else ""
+            result.append(prefix + chunk + suffix)
+            in_block = will_be_in_block
+        return result
 
     async def _send_long_message(
         self,
@@ -572,38 +630,17 @@ class CaliclawBot:
         text: str,
         first_message: Optional[Message] = None,
     ) -> None:
-        """Send text as one or multiple messages, splitting on 4096 char limit.
-
-        Splits at line breaks where possible to keep markdown intact.
-        Attempts Markdown rendering; falls back to plain text if parsing fails.
+        """Send text as one or multiple messages, splitting on Telegram's
+        4096-char limit. Code blocks survive splits. Markdown attempted
+        first; `_send_one` falls back to plain text on parse error.
         """
-        MAX = 4096
-
-        if len(text) <= MAX:
-            try:
-                await self._send_one(chat_id, text, first_message)
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                logger.warning("Failed to send response: %s", e)
-            return
-
-        chunks = []
-        remaining = text
-        while remaining:
-            if len(remaining) <= MAX:
-                chunks.append(remaining)
-                break
-            split_at = remaining.rfind("\n", 0, MAX)
-            if split_at == -1 or split_at < MAX // 2:
-                split_at = MAX
-            chunks.append(remaining[:split_at])
-            remaining = remaining[split_at:].lstrip("\n")
-
+        chunks = self._split_for_telegram(text)
         try:
             await self._send_one(chat_id, chunks[0], first_message)
             for chunk in chunks[1:]:
                 await self._send_one(chat_id, chunk, None)
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            logger.warning("Failed to send chunked response: %s", e)
+            logger.warning("Failed to send response: %s", e)
 
     _ERROR_HINTS = {
         "credit is too low": "Subscription limit exhausted. Check claude.ai/settings or wait for reset.",
@@ -641,41 +678,11 @@ class CaliclawBot:
     async def _build_lossless_handoff(
         self, session_id: str, max_messages: int = 50, char_budget: int = 40000,
     ) -> str:
-        """Verbatim replay of the most recent conversation so a fresh Claude
-        session can pick up exactly where the old one was. Walks messages
-        newest-first filling a char budget, returns them in chronological
-        order as 'User: ...\\nAssistant: ...' blocks.
-
-        Strips image-file references (`photo_*.jpg`) from message text — those
-        paths are what poisoned the old session; we don't want the new
-        session to Read them and poison again.
-        """
-        import re as _re
-        messages = await self.db.get_messages(session_id, limit=max_messages * 4)
-
-        picked: list[dict] = []
-        used = 0
-        for m in reversed(messages):
-            content = m.get("content") or ""
-            # Strip image paths that caused the poisoning in the first place.
-            content = _re.sub(
-                r"(/[\w/\-.]+)?photo_\d+_\w+\.(?:jpg|jpeg|png|webp|gif)",
-                "[image previously shared]",
-                content,
-                flags=_re.IGNORECASE,
-            )
-            if not content.strip():
-                continue
-            line = f"{'User' if m['role'] == 'user' else 'Assistant'}: {content}"
-            if picked and used + len(line) > char_budget:
-                break
-            picked.append({"line": line})
-            used += len(line)
-            if len(picked) >= max_messages:
-                break
-
-        picked.reverse()
-        return "\n\n".join(p["line"] for p in picked)
+        """Thin wrapper over core.handoff.build_lossless_handoff."""
+        from core.handoff import build_lossless_handoff
+        return await build_lossless_handoff(
+            self.db, session_id, max_messages, char_budget,
+        )
 
     async def _recover_from_api_error(
         self,

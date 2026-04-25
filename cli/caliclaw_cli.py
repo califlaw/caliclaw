@@ -892,53 +892,6 @@ async def cmd_memory(args: argparse.Namespace) -> None:
                 print(e.content[:500])
 
 
-async def cmd_vault(args: argparse.Namespace) -> None:
-    from security.vault import Vault
-    import getpass
-
-    vault = Vault()
-    arg = (getattr(args, "vault_arg", "") or "").strip()
-    value = (getattr(args, "vault_value", "") or "").strip()
-
-    if arg == "init":
-        pwd = getpass.getpass("Master password: ")
-        pwd2 = getpass.getpass("Confirm: ")
-        if pwd != pwd2:
-            print("Passwords don't match.")
-            return
-        vault.initialize(pwd)
-        print("Vault initialized.")
-    elif not arg:
-        pwd = getpass.getpass("Master password: ")
-        if not vault.unlock(pwd):
-            print("Wrong password.")
-            return
-        keys = vault.list_keys()
-        if not keys:
-            print("Vault is empty.")
-        else:
-            print(f"Secrets ({len(keys)}):")
-            for k in keys:
-                print(f"  - {k}")
-    elif value:
-        pwd = getpass.getpass("Master password: ")
-        if not vault.unlock(pwd):
-            print("Wrong password.")
-            return
-        vault.set(arg, value)
-        print(f"Stored: {arg}")
-    else:
-        pwd = getpass.getpass("Master password: ")
-        if not vault.unlock(pwd):
-            print("Wrong password.")
-            return
-        try:
-            val = vault.get(arg)
-            print(f"{arg} = {val}")
-        except KeyError:
-            print(f"Not found: {arg}")
-
-
 async def cmd_logs(args: argparse.Namespace) -> None:
     from core.config import get_settings
     log_file = get_settings().project_root / "logs" / "caliclaw.log"
@@ -1008,6 +961,10 @@ Commands:
     p_model.add_argument("model_action", nargs="?", default="")
     p_model.add_argument("model_value", nargs="?", default="")
 
+    p_llm = sub.add_parser("llm", help="Route through OpenRouter / custom proxy / Anthropic direct")
+    p_llm.add_argument("llm_action", nargs="?", default="")
+    p_llm.add_argument("llm_value", nargs="?", default="")
+
     sub.add_parser("update", help="Check PyPI and upgrade to the latest version")
     p_start = sub.add_parser("start", help="Start bot")
     p_start.add_argument("--debug", action="store_true")
@@ -1055,10 +1012,6 @@ Commands:
     p_memory = sub.add_parser("memory", help="Show or search memory")
     p_memory.add_argument("query", nargs="?", default="")
 
-    p_vault = sub.add_parser("vault", help="Manage secrets")
-    p_vault.add_argument("vault_arg", nargs="?", default="")
-    p_vault.add_argument("vault_value", nargs="?", default="")
-
     p_logs = sub.add_parser("logs", help="Show recent logs")
     p_logs.add_argument("lines", nargs="?", type=int, default=50)
 
@@ -1086,7 +1039,7 @@ Commands:
         "agents": cmd_agents, "tasks": cmd_tasks,
         "confirm": cmd_confirm, "approve": cmd_confirm,
         "reset": cmd_reset, "memory": cmd_memory,
-        "vault": cmd_vault, "logs": cmd_logs,
+        "logs": cmd_logs,
     }
 
     try:
@@ -1108,6 +1061,9 @@ Commands:
         elif args.command == "model":
             from cli.commands.model import cmd_model
             asyncio.run(cmd_model(args))
+        elif args.command == "llm":
+            from cli.commands.llm import cmd_llm
+            asyncio.run(cmd_llm(args))
         elif args.command == "update":
             from cli.commands.update import cmd_update
             asyncio.run(cmd_update(args))

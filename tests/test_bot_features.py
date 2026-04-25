@@ -177,3 +177,127 @@ class TestClassifyApiError:
     def test_classify_normal_text_returns_none(self):
         assert self._classify("Hello, here's the answer to your question.") is None
         assert self._classify("") is None
+
+
+# ── Telegram message splitter ──
+
+class TestSplitForTelegram:
+    """The splitter must keep ```fenced``` code blocks intact across
+    chunk boundaries — Telegram parses each message independently."""
+
+    def _split(self, text: str, max_len: int = 4096) -> list[str]:
+        from telegram.bot import CaliclawBot
+        return CaliclawBot._split_for_telegram(text, max_len)
+
+    def test_short_text_one_chunk(self):
+        assert self._split("hello") == ["hello"]
+
+    def test_chunks_within_limit(self):
+        text = "a" * 10000
+        chunks = self._split(text, max_len=4096)
+        assert len(chunks) >= 3
+        for c in chunks:
+            assert len(c) <= 4096
+
+    def test_prefers_paragraph_breaks(self):
+        # Paragraph break sits well inside the window — splitter should use it.
+        text = "para one " * 100 + "\n\n" + "para two " * 100
+        chunks = self._split(text, max_len=1500)
+        # First chunk ends at paragraph boundary, no leading whitespace next
+        assert chunks[0].rstrip().endswith("para one")
+        assert chunks[1].lstrip().startswith("para two")
+
+    def test_code_block_survives_split(self):
+        # Force a split inside a long code block
+        code = "\n".join(f"line_{i} = {i}" for i in range(400))
+        text = f"Here is the code:\n\n```python\n{code}\n```\n\nDone."
+        chunks = self._split(text, max_len=2000)
+        assert len(chunks) >= 2
+
+        # Every chunk must have balanced fences (open count == close count
+        # after our wrapping). Equivalently: every chunk has an even count.
+        for c in chunks:
+            assert c.count("```") % 2 == 0, f"unbalanced fences in chunk: {c[:80]}..."
+
+        # The continuation chunk must START with reopen fence
+        assert chunks[1].startswith("```")
+        # And the previous chunk must END with the close fence
+        assert chunks[0].rstrip().endswith("```")
+
+    def test_no_code_block_no_extra_fences(self):
+        """Plain text shouldn't grow extra ``` fences."""
+        text = "regular text " * 500
+        chunks = self._split(text, max_len=1500)
+        for c in chunks:
+            assert "```" not in c
+
+    def test_inline_backticks_dont_break(self):
+        """Single backticks aren't fences; they shouldn't trip the fence counter."""
+        text = "Use `foo` and `bar`. " * 300
+        chunks = self._split(text, max_len=1500)
+        for c in chunks:
+            # Splitter only tracks triple-backticks, so inline ` ` survives raw
+            assert "```" not in c
+
+
+# ── _send_one parse-error fallback (duplicate message regression) ──
+
+class TestSendOneFallback:
+    """When Markdown parse fails on edit, the fallback must edit the SAME
+    message as plain text — not send a fresh one. Sending fresh leaves the
+    streaming message in the chat and produces a visible duplicate."""
+
+    async def test_parse_error_edits_same_message(self):
+        """Regression: parse error on edit → re-edit with plain text, no resend."""
+        import aiogram.exceptions
+        from unittest.mock import AsyncMock, MagicMock
+        from telegram.bot import CaliclawBot
+
+        # Streaming message (the one already shown to the user)
+        first_msg = MagicMock()
+        first_msg.text = "old text"
+        # First edit_text call fails with parse error; second succeeds
+        first_msg.edit_text = AsyncMock(side_effect=[
+            aiogram.exceptions.TelegramBadRequest(
+                method=MagicMock(), message="Bad Request: can't parse entities: ...",
+            ),
+            None,
+        ])
+
+        # Bot instance with a mocked send_message we expect NOT to be called
+        bot_instance = MagicMock()
+        bot_instance.send_message = AsyncMock()
+
+        fake_self = MagicMock()
+        fake_self.bot = bot_instance
+
+        # Call the unbound method directly so we don't need full bot wiring
+        await CaliclawBot._send_one(fake_self, chat_id=1, text="new text", first_message=first_msg)
+
+        # Edited twice on the SAME message (Markdown try, then plain)
+        assert first_msg.edit_text.await_count == 2
+        # NEVER sent a fresh message — that's the duplicate bug
+        bot_instance.send_message.assert_not_awaited()
+
+    async def test_send_path_parse_error_resends_plain(self):
+        """When there's no first_message, parse error retries send (no duplicate
+        possible because nothing was sent yet)."""
+        import aiogram.exceptions
+        from unittest.mock import AsyncMock, MagicMock
+        from telegram.bot import CaliclawBot
+
+        bot_instance = MagicMock()
+        bot_instance.send_message = AsyncMock(side_effect=[
+            aiogram.exceptions.TelegramBadRequest(
+                method=MagicMock(), message="Bad Request: can't parse entities: ...",
+            ),
+            None,
+        ])
+
+        fake_self = MagicMock()
+        fake_self.bot = bot_instance
+
+        await CaliclawBot._send_one(fake_self, chat_id=1, text="hello", first_message=None)
+
+        # Two send attempts (Markdown, then plain) — single message in chat
+        assert bot_instance.send_message.await_count == 2

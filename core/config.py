@@ -103,6 +103,18 @@ class Settings(BaseSettings):
     claude_default_model: str = "sonnet"
     freedom_mode: bool = False
 
+    # LLM provider routing — when set, every `claude -p` subprocess
+    # (main agent, haiku image-describer, child agents) runs against
+    # this endpoint instead of the default Anthropic API.
+    # Use cases:
+    #   - OpenRouter: BASE_URL=https://openrouter.ai/api/v1, AUTH_TOKEN=<sk-or-...>
+    #   - Custom Anthropic-compatible proxy (claude-code-router, LiteLLM): point at it
+    #   - Self-hosted relay: same idea
+    # Claude Code natively reads ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
+    # from its environment; we just forward them.
+    anthropic_base_url: Optional[str] = None
+    anthropic_auth_token: Optional[str] = None
+
     @property
     def engine_binary(self) -> str:
         """Path to the caliclaw engine wrapper."""
@@ -135,9 +147,6 @@ class Settings(BaseSettings):
     # Whisper
     whisper_cpp_path: str = "/usr/local/bin/whisper-cpp"
     whisper_model_path: str = str(_project_root() / "models" / "ggml-base.bin")
-
-    # Vault
-    vault_key_path: Path = Path.home() / ".caliclaw" / "vault.key"
 
     # Obsidian integration (optional). When set, caliclaw can read from /
     # write structured notes into the user's Obsidian vault.
