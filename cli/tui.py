@@ -140,7 +140,16 @@ class TUI:
                 accumulated.append(chunk)
                 console.print(chunk, end="", highlight=False)
 
-            result = await proc.run_streaming(user_input, on_chunk)
+            try:
+                result = await proc.run_streaming(user_input, on_chunk)
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                # Kill subprocess so its stdout pipe / asyncio reader thread
+                # don't deadlock during interpreter shutdown.
+                await proc.kill()
+                console.print()
+                console.print("[dim]interrupted — type your next message or Ctrl+C again to quit[/dim]")
+                console.rule(style="dim grey30")
+                continue
 
             if not accumulated and result.text:
                 try:
@@ -242,3 +251,10 @@ def run_tui() -> None:
         from cli.ui import ui
         ui.c.print()
         ui.c.print("[dim]bye 🔱[/dim]")
+    finally:
+        # Force-exit so daemon threads (rich live spinner, prompt_toolkit
+        # input reader, asyncio subprocess pipe readers) don't deadlock
+        # during interpreter _shutdown waiting on locks. atexit handlers
+        # we care about (DB writes) have already flushed by this point.
+        import os
+        os._exit(0)
