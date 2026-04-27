@@ -965,6 +965,10 @@ Commands:
     p_llm.add_argument("llm_action", nargs="?", default="")
     p_llm.add_argument("llm_value", nargs="?", default="")
 
+    p_project = sub.add_parser("project", help="Switch active project (soul + workspace + session)")
+    p_project.add_argument("project_action", nargs="?", default="")
+    p_project.add_argument("project_value", nargs="?", default="")
+
     sub.add_parser("update", help="Check PyPI and upgrade to the latest version")
     p_start = sub.add_parser("start", help="Start bot")
     p_start.add_argument("--debug", action="store_true")
@@ -1064,6 +1068,9 @@ Commands:
         elif args.command == "llm":
             from cli.commands.llm import cmd_llm
             asyncio.run(cmd_llm(args))
+        elif args.command == "project":
+            from cli.commands.project import cmd_project
+            asyncio.run(cmd_project(args))
         elif args.command == "update":
             from cli.commands.update import cmd_update
             asyncio.run(cmd_update(args))

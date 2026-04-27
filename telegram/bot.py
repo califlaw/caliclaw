@@ -890,8 +890,12 @@ class CaliclawBot:
         from aiogram.types import BotCommand
         await self.bot.set_my_commands([
             BotCommand(command="fresh", description="New session"),
-            BotCommand(command="freedom", description="Full machine control on/off"),
+            BotCommand(command="project", description="Switch project (soul + workspace + session)"),
+            BotCommand(command="context", description="Show context size & health"),
+            BotCommand(command="squeeze", description="Compress context"),
             BotCommand(command="model", description="Switch model"),
+            BotCommand(command="llm", description="Switch LLM provider (anthropic / openrouter / custom)"),
+            BotCommand(command="freedom", description="Full machine control on/off"),
             BotCommand(command="skills", description="List skills"),
             BotCommand(command="agents", description="List agents"),
             BotCommand(command="spawn", description="Create agent"),
@@ -908,7 +912,6 @@ class CaliclawBot:
             BotCommand(command="soul", description="Show soul"),
             BotCommand(command="unleash", description="Grant directory access"),
             BotCommand(command="confirm", description="Approve action"),
-            BotCommand(command="squeeze", description="Compress context"),
             BotCommand(command="reset", description="Reset state"),
             BotCommand(command="restart", description="Restart bot"),
             BotCommand(command="help", description="All commands"),

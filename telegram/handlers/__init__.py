@@ -21,7 +21,6 @@ def register_handlers(bot: CaliclawBot) -> None:
         tasks,
         data,
         access,
-        voice,
         messages,
         callbacks,
     )
@@ -33,6 +32,15 @@ def register_handlers(bot: CaliclawBot) -> None:
     tasks.register(bot)
     data.register(bot)
     access.register(bot)
-    voice.register(bot)        # /voice on|off|status — must come before messages
+
+    # Optional handlers — present in some installs (e.g. local WIP), absent
+    # in the published wheel. Skip silently rather than crashing the daemon
+    # if the module isn't shipped.
+    try:
+        from telegram.handlers import voice  # /voice on|off|status
+        voice.register(bot)
+    except ImportError:
+        pass
+
     messages.register(bot)
     callbacks.register(bot)
