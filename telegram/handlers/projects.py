@@ -115,10 +115,14 @@ def register(bot: "CaliclawBot") -> None:
                 )
                 return
             create_project(arg)
-            set_active_project(arg)
+            # Don't auto-activate — the new SOUL.md is just a template stub.
+            # If we switched now, the agent would lose its global identity
+            # and respond as generic Claude until the soul is filled in.
+            # User runs `/project use <name>` after editing the soul.
             await message.answer(
-                f"✅ Project *{arg}* created and active.\n"
-                f"Edit `agents/projects/{arg}/main/SOUL.md` to define behavior.\n"
+                f"✅ Project *{arg}* scaffolded.\n"
+                f"Edit `agents/projects/{arg}/main/SOUL.md` to define project context, "
+                f"then `/project use {arg}` to activate.\n"
                 f"Workspace: `workspace/projects/{arg}/`",
                 parse_mode=ParseMode.MARKDOWN,
             )

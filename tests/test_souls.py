@@ -76,3 +76,39 @@ def test_empty_soul_files(souls):
     soul = souls.load_soul("empty-agent", scope="ephemeral")
     # Should at least have the main soul
     assert "caliclaw" in soul
+
+
+def test_project_main_includes_global_as_base(souls):
+    """When `main` is loaded under project scope, the global main SOUL must
+    still be loaded as base — otherwise activating an empty project soul
+    would erase the agent's identity (regression caught on 2026-04-27:
+    `/project new ai-marketplace` made the bot represent as generic Claude
+    because the stub project soul replaced the global Йоичи soul)."""
+    project_main = souls._agents_dir / "projects" / "myapp" / "main"
+    project_main.mkdir(parents=True)
+    (project_main / "SOUL.md").write_text("Working on myapp specifically.")
+
+    soul = souls.load_soul("main", scope="project", project="myapp")
+    # Project context layered ON TOP of global identity
+    assert "myapp" in soul
+    assert "caliclaw" in soul, "global main SOUL must remain as base"
+
+
+def test_global_main_does_not_duplicate_itself(souls):
+    """Global main loading itself shouldn't include the global main soul
+    twice (once as base + once as agent-specific)."""
+    soul = souls.load_soul("main")
+    # "caliclaw" appears once in SOUL.md content; ensure no duplicate
+    assert soul.count("caliclaw, the main coordinator") == 1
+
+
+def test_project_main_with_empty_project_soul_falls_back_to_global(souls):
+    """If a project main has an empty SOUL.md (template stub), global
+    identity must still come through from the base."""
+    project_main = souls._agents_dir / "projects" / "ai-marketplace" / "main"
+    project_main.mkdir(parents=True)
+    (project_main / "SOUL.md").write_text("")  # empty template
+
+    soul = souls.load_soul("main", scope="project", project="ai-marketplace")
+    # Even with empty project soul, agent keeps its base identity
+    assert "caliclaw" in soul

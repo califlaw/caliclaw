@@ -154,8 +154,13 @@ class SoulLoader:
         if security:
             parts.append(f"# SECURITY (mandatory)\n{security}")
 
-        # Load global main soul as base (for non-main agents)
-        if agent_name != "main":
+        # Always load the global main soul as base — it carries the agent's
+        # core identity. Skip only when WE ARE the global main agent (would
+        # be a duplicate). For project-scoped main and for any non-main
+        # agent (regardless of scope), the global main soul becomes the
+        # foundation; the agent-specific files layer on top as additions.
+        is_self = (agent_name == "main" and scope == "global")
+        if not is_self:
             main_soul = self._load_file(self._agents_dir / "global" / "main" / "SOUL.md")
             if main_soul:
                 parts.append(f"# Base System Instructions\n{main_soul}")

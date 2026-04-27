@@ -92,9 +92,11 @@ async def cmd_project(args: argparse.Namespace) -> None:
             ui.info(f"Switch: caliclaw project use {arg}")
             return
         pdir = create_project(arg)
-        set_active_project(arg)
-        ui.ok(f"Project [bold red]{arg}[/bold red] created and active.")
+        # Don't auto-activate — the soul is just a template stub. User
+        # edits it and explicitly switches with `caliclaw project use`.
+        ui.ok(f"Project [bold red]{arg}[/bold red] scaffolded.")
         ui.info(f"Edit: {pdir / 'main' / 'SOUL.md'}")
+        ui.info(f"Then activate: caliclaw project use {arg}")
         return
 
     ui.fail(f"Unknown action: {action}")
