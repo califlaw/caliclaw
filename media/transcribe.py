@@ -55,6 +55,23 @@ async def transcribe_audio(
     return result
 
 
+def _compute_timeout(wav_path: Path) -> int:
+    """Pick a per-call timeout that scales with audio length.
+
+    Heuristic: 30s startup overhead + 3x audio duration. Floor at 120s
+    (short clips with model warmup), ceiling at 30min (long-running guard
+    so a truly hung whisper still dies). Falls back to 600s if we can't
+    read the WAV header.
+    """
+    import wave
+    try:
+        with wave.open(str(wav_path), "rb") as w:
+            duration = w.getnframes() / max(1, w.getframerate())
+    except (wave.Error, OSError, EOFError):
+        return 600
+    return min(1800, max(120, int(30 + duration * 3)))
+
+
 async def _try_whisper_cpp(
     wav_path: Path, model_path: Optional[str], language: str
 ) -> Optional[str]:
@@ -77,10 +94,20 @@ async def _try_whisper_cpp(
         logger.info("Whisper model not found at %s, will use fallback.", model)
         return None
 
+    # -bs 1 -bo 1: greedy decode (no beam search). On CPU this is ~3-5x
+    # faster than the default 5-beam search and quality drop on conversational
+    # voice notes is negligible. Lost-Tor incident (2026-04-27) showed base
+    # model + 5-beam was 5+ minutes on a 60-sec clip, blowing past the 120s
+    # asyncio timeout and silently dropping every voice message.
+    import os
+    threads = str(max(1, os.cpu_count() or 4))
     cmd = [
         whisper_bin,
         "-m", model,
         "-l", language,
+        "-t", threads,
+        "-bs", "1",
+        "-bo", "1",
         "-f", str(wav_path),
         "--no-timestamps",
         "-nt",
@@ -94,7 +121,16 @@ async def _try_whisper_cpp(
         stderr=asyncio.subprocess.PIPE,
     )
 
-    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+    # Scale timeout to actual audio length — whisper-cpp on CPU runs roughly
+    # at 1-3x realtime with greedy decode (depends on model size + threads).
+    # 30s base + 3x duration covers slow-CPU + base/small models on long
+    # voice notes. Floor at 120s for tiny clips, ceiling at 30min so a
+    # truly hung process eventually gets killed.
+    # Idle-timeout would be cleaner but whisper-cpp buffers stdout until
+    # the entire transcript is ready — no streaming progress to reset on.
+    timeout = _compute_timeout(wav_path)
+    logger.info("whisper-cpp timeout: %ds (audio duration determines budget)", timeout)
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
 
     if proc.returncode != 0:
         logger.error("whisper-cpp failed: %s", stderr.decode())
