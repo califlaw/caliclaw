@@ -93,6 +93,7 @@ def register(bot: CaliclawBot) -> None:
             "/fresh — new session\n"
             "/squeeze — compress context\n"
             "/context — show context size & health\n"
+            "/project — switch project (soul + workspace + session)\n"
             "/reset — reset state\n\n"
             "**Agents:**\n"
             "/agents — list agents\n"

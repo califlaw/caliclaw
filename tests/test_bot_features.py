@@ -178,6 +178,68 @@ class TestClassifyApiError:
         assert self._classify("Hello, here's the answer to your question.") is None
         assert self._classify("") is None
 
+    def test_classify_long_answer_mentioning_api_error_is_none(self):
+        """Regression: agent's normal long answer that quotes 'API Error'
+        in technical discussion must NOT trigger a session reset.
+
+        Reproduces the 2026-04-27 incident: the agent wrote a multi-
+        paragraph answer about a technical pipeline, mentioned 'api error'
+        somewhere mid-text, and the substring-only classifier flipped the
+        session.
+        """
+        text = (
+            "Got it. Here's the breakdown:\n"
+            "- **Audio:** prompt_text is already in each task\n"
+            "- Liveness for audio = STT verification (Whisper)\n"
+            + ("More details below: " * 50)
+            + " api error: 500 — that's an example we discussed earlier.\n"
+            + ("Next plan: " * 50)
+        )
+        assert self._classify(text) is None
+
+    def test_classify_transient_overload_529(self):
+        """Anthropic 529 Overloaded — short, starts with marker, transient code."""
+        text = (
+            "API Error: 529 Overloaded. This is a server-side issue, "
+            "usually temporary — try again in a moment."
+        )
+        assert self._classify(text) == "transient"
+
+    def test_classify_transient_503(self):
+        text = "API Error: 503 service unavailable"
+        assert self._classify(text) == "transient"
+
+    def test_classify_specific_phrase_in_short_text_still_works(self):
+        """Short response containing 'could not process image' is still
+        diagnostic even without the API Error: prefix."""
+        assert self._classify("Could not process image") == "image"
+
+    def test_classify_specific_phrase_in_long_text_does_not_trigger(self):
+        """Long agent answer mentioning 'rate_limit_error' as a string in
+        a code example must not trigger a recovery."""
+        text = (
+            "Here is how the Anthropic SDK signals quota exhaustion: "
+            "the response body has type=rate_limit_error. You can catch "
+            "it with try/except RateLimitError. " * 50
+        )
+        assert self._classify(text) is None
+
+    def test_classify_json_envelope_rate_limit(self):
+        """JSON-shaped error blob from claude -p stdout."""
+        assert self._classify(
+            '{"type":"error","error":{"type":"rate_limit_error"}}'
+        ) == "rate_limit"
+
+    def test_classify_auth_error_starts_with_api_error(self):
+        text = 'API Error: 401 {"type":"authentication_error"}'
+        assert self._classify(text) == "auth"
+
+    def test_classify_short_overloaded_keyword(self):
+        """Even without numeric code, 'overloaded' keyword in API Error head
+        should classify as transient."""
+        text = "API Error: server is overloaded right now, retry shortly."
+        assert self._classify(text) == "transient"
+
 
 # ── Telegram message splitter ──
 

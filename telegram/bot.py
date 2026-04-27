@@ -293,10 +293,12 @@ class CaliclawBot:
         if warning:
             logger.warning("Injection attempt from %s: %s", sender, warning)
 
-        session = await self.db.get_active_session("main")
+        from core.projects import get_active_project, session_agent_name
+        agent_name_db = session_agent_name(get_active_project())
+        session = await self.db.get_active_session(agent_name_db)
         if not session:
             session_id = f"session-{uuid.uuid4().hex[:12]}"
-            await self.db.create_session(session_id, "main")
+            await self.db.create_session(session_id, agent_name_db)
         else:
             session_id = session["id"]
 
@@ -325,8 +327,18 @@ class CaliclawBot:
         self._typing_tasks[chat_id] = typing_task
 
         try:
+            from core.projects import get_active_project, project_workspace
+
             prompt = self.queue.format_batch(batch)
-            system_prompt = self.souls.load_soul("main")
+            active_project = get_active_project()
+            if active_project:
+                system_prompt = self.souls.load_soul(
+                    "main", scope="project", project=active_project,
+                )
+                working_dir = project_workspace(active_project)
+            else:
+                system_prompt = self.souls.load_soul("main")
+                working_dir = self._working_dir
             session = await self.db.get_session(session_id)
             claude_session_id = session.get("claude_session_id") if session else None
 
@@ -361,7 +373,7 @@ class CaliclawBot:
             config = AgentConfig(
                 name="main", model=self._current_model, system_prompt=system_prompt,
                 continue_session=claude_session_id is not None,
-                session_id=claude_session_id, working_dir=self._working_dir,
+                session_id=claude_session_id, working_dir=working_dir,
             )
 
             response_msg: Optional[Message] = None
@@ -659,20 +671,92 @@ class CaliclawBot:
                 return hint
         return ""
 
-    _API_ERROR_CLASSIFIERS = (
-        ("image", ("could not process image",)),
-        ("auth", ("authentication_error", "invalid api key")),
-        ("rate_limit", ("rate_limit_error",)),
-        ("generic", ("api error:", "invalid_request_error")),
+    # Anthropic API errors that `claude -p` prints to stdout (and exits 0).
+    # We need to spot them WITHOUT misclassifying normal agent answers that
+    # happen to mention "api error" while discussing some technical topic.
+    #
+    # Heuristic: a real API error ALWAYS starts at byte 0 with one of these
+    # markers, often followed by a JSON blob or short status text. A normal
+    # agent answer may quote "API Error" mid-paragraph but never opens with
+    # one. We also bound the response length — Claude's own error text is
+    # short (~200-500 chars), real answers are usually much longer.
+    _API_ERROR_PREFIXES = (
+        "api error:",                # most common: "API Error: 400 ..."
+        '{"type":"error"',           # raw JSON error envelope
+        "{'type': 'error'",          # python-repr variant
     )
+    # Specific phrases that, if seen at any position, are diagnostic enough
+    # on their own (Claude only emits them in actual error contexts).
+    _API_ERROR_SPECIFIC = (
+        "could not process image",   # image upload failed
+        "authentication_error",      # auth json field
+        "rate_limit_error",          # rate limit json field
+        "invalid_request_error",     # invalid request json field
+    )
+    # Transient server-side errors — Anthropic side hiccup, not session
+    # poisoning. We surface a short message and DON'T drop the session.
+    _TRANSIENT_CODES = ("529", "503", "502", "504")
+    _TRANSIENT_KEYWORDS = ("overloaded", "service unavailable", "bad gateway", "gateway timeout")
 
     def _classify_api_error(self, text: str) -> Optional[str]:
-        """Return a short tag for API errors that Claude CLI printed as text
-        (it exits 0 and puts the error in stdout). None for normal output."""
-        lower = text.lower()
-        for tag, patterns in self._API_ERROR_CLASSIFIERS:
-            if any(p in lower for p in patterns):
-                return tag
+        """Return a tag for genuine API errors, or None for normal text.
+
+        Tags:
+          "image"     — image upload failed (recover by dropping session)
+          "auth"      — auth/key problem (recover, surface to user)
+          "rate_limit"— rate limit hit (recover, suggest waiting)
+          "transient" — Anthropic-side overload (5xx), DO NOT drop session
+          "generic"   — other API error (recover)
+          None        — not an API error, just normal agent text
+
+        The classifier is intentionally strict on positioning: an error must
+        START the response (or be a JSON envelope), and the response must be
+        short enough to plausibly be an error dump rather than an answer that
+        merely cites error terminology.
+        """
+        if not text:
+            return None
+        stripped = text.lstrip()
+        lower_start = stripped[:200].lower()
+
+        # Bail out fast if the response is long-form prose — Claude's error
+        # dumps are short. A 2KB+ response that happens to contain "API
+        # Error:" in the middle is a normal answer, not an error.
+        is_short = len(text) <= 800
+
+        # Specific phrases — uniquely indicative wherever they appear, but
+        # still gated by the short-response bound to avoid agent quotations.
+        if is_short:
+            lower_full = text.lower()
+            for phrase in self._API_ERROR_SPECIFIC:
+                if phrase in lower_full:
+                    if phrase == "could not process image":
+                        return "image"
+                    if phrase == "authentication_error":
+                        return "auth"
+                    if phrase == "rate_limit_error":
+                        return "rate_limit"
+                    return "generic"
+
+        # Prefix check — the response opens with a real error marker.
+        for prefix in self._API_ERROR_PREFIXES:
+            if lower_start.startswith(prefix):
+                # Sub-classify if we can spot the specific kind in the head.
+                head = lower_start
+                if "could not process image" in head:
+                    return "image"
+                if "authentication_error" in head or "invalid api key" in head:
+                    return "auth"
+                if "rate_limit_error" in head:
+                    return "rate_limit"
+                # Transient overload — don't reset the session for these.
+                if (
+                    any(code in head for code in self._TRANSIENT_CODES)
+                    or any(kw in head for kw in self._TRANSIENT_KEYWORDS)
+                ):
+                    return "transient"
+                return "generic"
+
         return None
 
     async def _build_lossless_handoff(
@@ -692,36 +776,51 @@ class CaliclawBot:
         kind: str,
         response_msg: Optional[Message],
     ) -> None:
-        """Drop the poisoned Claude session, build a lossless verbatim replay
-        of prior messages, and tell the user. Raw API-error text is not saved
-        as an assistant message."""
+        """Handle a classified API error.
+
+        For `transient` (Anthropic 5xx overload): show a short retry-prompt
+        and DO NOT touch claude_session_id. The session is healthy; the
+        Anthropic backend just hiccupped. Resetting here would be the bug
+        the user kept reporting — losing context on a temporary network
+        blip.
+
+        For everything else: drop claude_session_id, build a verbatim replay
+        of prior messages so the next turn picks up lossless. Raw API-error
+        text is never saved as an assistant message.
+        """
         logger.warning(
-            "API error (%s) in chat %d, recovering: %s",
+            "API error (%s) in chat %d: %s",
             kind, chat_id, raw_text[:200],
         )
 
-        await self.db.update_session(session_id, claude_session_id=None)
-
-        try:
-            handoff = await self._build_lossless_handoff(session_id)
-            if handoff:
-                await self.db.update_session(session_id, summary=handoff)
-        except (RuntimeError, OSError, ValueError) as e:
-            logger.warning("Could not build handoff: %s", e)
-
-        hint = self._get_error_hint(raw_text)
-        if kind == "image":
+        if kind == "transient":
             msg = (
-                "⚠️ Previous turn hit an image issue. Session reset, "
-                "full history restored — try again, I remember everything."
+                "⏳ Anthropic API is temporarily overloaded. "
+                "Context is intact — just resend your message."
             )
-        elif hint:
-            msg = f"⚠️ {hint}"
         else:
-            msg = (
-                f"⚠️ Claude API error ({kind}). Session reset, "
-                f"full history restored — try again."
-            )
+            await self.db.update_session(session_id, claude_session_id=None)
+
+            try:
+                handoff = await self._build_lossless_handoff(session_id)
+                if handoff:
+                    await self.db.update_session(session_id, summary=handoff)
+            except (RuntimeError, OSError, ValueError) as e:
+                logger.warning("Could not build handoff: %s", e)
+
+            hint = self._get_error_hint(raw_text)
+            if kind == "image":
+                msg = (
+                    "⚠️ Previous turn hit an image issue. Session reset, "
+                    "full history restored — try again, I remember everything."
+                )
+            elif hint:
+                msg = f"⚠️ {hint}"
+            else:
+                msg = (
+                    f"⚠️ Claude API error ({kind}). Session reset, "
+                    f"full history restored — try again."
+                )
         try:
             if response_msg is not None:
                 try:

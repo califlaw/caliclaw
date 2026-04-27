@@ -16,19 +16,23 @@ def register_handlers(bot: CaliclawBot) -> None:
     from telegram.handlers import (
         system,
         session,
+        projects,
         agents,
         tasks,
         data,
         access,
+        voice,
         messages,
         callbacks,
     )
 
     system.register(bot)
     session.register(bot)
+    projects.register(bot)     # /project — must come before messages
     agents.register(bot)
     tasks.register(bot)
     data.register(bot)
     access.register(bot)
+    voice.register(bot)        # /voice on|off|status — must come before messages
     messages.register(bot)
     callbacks.register(bot)

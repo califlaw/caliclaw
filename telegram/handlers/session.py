@@ -22,20 +22,29 @@ router = Router()
 def register(bot: CaliclawBot) -> None:
     bot.dp.include_router(router)
 
+    def _project_agent_name() -> str:
+        from core.projects import get_active_project, session_agent_name
+        return session_agent_name(get_active_project())
+
     @router.message(Command("fresh"))
     async def cmd_fresh(message: Message) -> None:
         if not bot._check_allowed(message):
             return
         session_id = f"session-{uuid.uuid4().hex[:12]}"
-        await bot.db.create_session(session_id, "main")
+        agent_name = _project_agent_name()
+        await bot.db.create_session(session_id, agent_name)
         bot._current_model = bot.settings.claude_default_model
-        await message.answer(f"New session: `{session_id[:16]}...`", parse_mode=ParseMode.MARKDOWN)
+        scope = agent_name.split(":", 1)[1] if ":" in agent_name else "global"
+        await message.answer(
+            f"New session ({scope}): `{session_id[:16]}…`",
+            parse_mode=ParseMode.MARKDOWN,
+        )
 
     @router.message(Command("squeeze"))
     async def cmd_squeeze(message: Message) -> None:
         if not bot._check_allowed(message):
             return
-        session = await bot.db.get_active_session("main")
+        session = await bot.db.get_active_session(_project_agent_name())
         if not session:
             await message.answer("No active session.")
             return
@@ -56,7 +65,7 @@ def register(bot: CaliclawBot) -> None:
     async def cmd_context(message: Message) -> None:
         if not bot._check_allowed(message):
             return
-        session = await bot.db.get_active_session("main")
+        session = await bot.db.get_active_session(_project_agent_name())
         if not session:
             await message.answer("No active session. Send a message to start one.")
             return
@@ -91,8 +100,13 @@ def register(bot: CaliclawBot) -> None:
 
         started = datetime.fromtimestamp(created).strftime("%Y-%m-%d %H:%M") if created else "?"
 
+        from core.projects import get_active_project
+        active_project = get_active_project()
+        scope = f"project: {active_project}" if active_project else "global"
+
         lines = [
             "*Context*",
+            f"Scope: {scope}",
             f"Session: `{sid[:16]}…`",
             f"Started: {started} ({age_str} ago)",
             f"Messages: {count}",
