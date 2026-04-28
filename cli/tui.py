@@ -22,9 +22,12 @@ try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.formatted_text import ANSI
     from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.key_binding import KeyBindings
 except ImportError:
     print("Install dependencies: pip install rich prompt_toolkit")
     sys.exit(1)
+
+from cli.mic import MicRecorder
 
 console = Console()
 
@@ -35,9 +38,41 @@ class TUI:
         self.claude_session_id: str | None = None
         history_path = _ROOT / "data" / "tui_history"
         history_path.parent.mkdir(parents=True, exist_ok=True)
+        self._mic = MicRecorder()
         self.prompt_session = PromptSession(
-            history=FileHistory(str(history_path))
+            history=FileHistory(str(history_path)),
+            key_bindings=self._build_keybindings(),
+            bottom_toolbar=self._toolbar,
+            refresh_interval=0.5,  # so the REC timer ticks
         )
+
+    def _build_keybindings(self) -> KeyBindings:
+        kb = KeyBindings()
+
+        @kb.add("escape", "c-n")
+        def _toggle_mic(event):
+            buf = event.app.current_buffer
+            if self._mic.is_recording():
+                # Block briefly while whisper runs — better than splitting
+                # the UI flow with an async callback.
+                text = self._mic.stop_and_transcribe()
+                if text:
+                    buf.insert_text(text + " ")
+                # If transcribe failed, _toolbar surfaces the reason.
+            else:
+                if not self._mic.start():
+                    # Toolbar will show last_error; nothing else to do.
+                    pass
+
+        return kb
+
+    def _toolbar(self):
+        if self._mic.is_recording():
+            return f" 🔴 REC {self._mic.elapsed():.0f}s — Ctrl+Alt+N to stop+transcribe"
+        err = self._mic.last_error()
+        if err:
+            return f" 🎙 Ctrl+Alt+N to record · last: {err}"
+        return " 🎙 Ctrl+Alt+N to record"
 
     async def start(self) -> None:
         from core.config import get_settings
@@ -70,7 +105,8 @@ class TUI:
             "  [dim]/memory[/dim]  — show memory\n"
             "  [dim]/agents[/dim]  — list agents\n"
             "  [dim]/model X[/dim] — switch model (haiku/sonnet/opus)\n"
-            "  [dim]/quit[/dim]    — exit",
+            "  [dim]/quit[/dim]    — exit\n"
+            "[dim]Ctrl+Alt+N[/dim] — push-to-talk (toggle mic → whisper → prompt)",
             title="🔱",
         ))
 
@@ -235,7 +271,8 @@ class TUI:
                 "/memory — show memory\n"
                 "/agents — list agents\n"
                 "/model X — switch model\n"
-                "/quit — exit"
+                "/quit — exit\n"
+                "Ctrl+Alt+N — push-to-talk (mic → whisper → prompt)"
             )
             return True
 

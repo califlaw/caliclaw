@@ -99,8 +99,15 @@ async def _try_whisper_cpp(
     # voice notes is negligible. Lost-Tor incident (2026-04-27) showed base
     # model + 5-beam was 5+ minutes on a 60-sec clip, blowing past the 120s
     # asyncio timeout and silently dropping every voice message.
+    #
+    # Threads: cap at cpu_count - 1 so the asyncio loop, claude subprocess,
+    # and (when voice-mode is on) edge_tts have a core to breathe. Pinning
+    # whisper to all cores while the bot is also running haiku scheduled
+    # tasks + TTS pipeline triggers timeouts under load (Tor incident
+    # 2026-04-28: tiny model timed out on a 46-sec clip with voice-mode on).
     import os
-    threads = str(max(1, os.cpu_count() or 4))
+    cpu = os.cpu_count() or 4
+    threads = str(max(1, cpu - 1))
     cmd = [
         whisper_bin,
         "-m", model,
@@ -108,6 +115,7 @@ async def _try_whisper_cpp(
         "-t", threads,
         "-bs", "1",
         "-bo", "1",
+        "-np",  # silence whisper's progress chatter — keeps stderr small
         "-f", str(wav_path),
         "--no-timestamps",
         "-nt",

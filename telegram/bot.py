@@ -895,6 +895,7 @@ class CaliclawBot:
             BotCommand(command="squeeze", description="Compress context"),
             BotCommand(command="model", description="Switch model"),
             BotCommand(command="llm", description="Switch LLM provider (anthropic / openrouter / custom)"),
+            BotCommand(command="voice", description="Voice replies on/off (TTS)"),
             BotCommand(command="freedom", description="Full machine control on/off"),
             BotCommand(command="skills", description="List skills"),
             BotCommand(command="agents", description="List agents"),
