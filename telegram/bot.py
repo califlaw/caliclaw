@@ -374,6 +374,7 @@ class CaliclawBot:
                 name="main", model=self._current_model, system_prompt=system_prompt,
                 continue_session=claude_session_id is not None,
                 session_id=claude_session_id, working_dir=working_dir,
+                channel="telegram",
             )
 
             response_msg: Optional[Message] = None

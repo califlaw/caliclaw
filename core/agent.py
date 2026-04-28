@@ -41,6 +41,10 @@ class AgentConfig:
     session_id: Optional[str] = None
     max_turns: Optional[int] = None
     extra_args: List[str] = field(default_factory=list)
+    # Which surface kicked off this turn. Skills (e.g. telegram-voice)
+    # read $CALICLAW_CHANNEL to decide where to send replies. "cli" =
+    # caliclaw chat TUI; "telegram" = TG bot; "scheduler" = autonomous task.
+    channel: str = "telegram"
 
 
 class AgentProcess:
@@ -67,6 +71,7 @@ class AgentProcess:
             env["ANTHROPIC_BASE_URL"] = self._settings.anthropic_base_url
         if self._settings.anthropic_auth_token:
             env["ANTHROPIC_AUTH_TOKEN"] = self._settings.anthropic_auth_token
+        env["CALICLAW_CHANNEL"] = self.config.channel
         return env
 
     def _build_command(self, prompt: str) -> List[str]:

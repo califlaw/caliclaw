@@ -22,7 +22,6 @@ try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.formatted_text import ANSI
     from prompt_toolkit.history import FileHistory
-    from prompt_toolkit.key_binding import KeyBindings
 except ImportError:
     print("Install dependencies: pip install rich prompt_toolkit")
     sys.exit(1)
@@ -39,40 +38,10 @@ class TUI:
         history_path = _ROOT / "data" / "tui_history"
         history_path.parent.mkdir(parents=True, exist_ok=True)
         self._mic = MicRecorder()
+        self._pending_voice_text: str | None = None
         self.prompt_session = PromptSession(
             history=FileHistory(str(history_path)),
-            key_bindings=self._build_keybindings(),
-            bottom_toolbar=self._toolbar,
-            refresh_interval=0.5,  # so the REC timer ticks
         )
-
-    def _build_keybindings(self) -> KeyBindings:
-        kb = KeyBindings()
-
-        @kb.add("escape", "c-n")
-        def _toggle_mic(event):
-            buf = event.app.current_buffer
-            if self._mic.is_recording():
-                # Block briefly while whisper runs — better than splitting
-                # the UI flow with an async callback.
-                text = self._mic.stop_and_transcribe()
-                if text:
-                    buf.insert_text(text + " ")
-                # If transcribe failed, _toolbar surfaces the reason.
-            else:
-                if not self._mic.start():
-                    # Toolbar will show last_error; nothing else to do.
-                    pass
-
-        return kb
-
-    def _toolbar(self):
-        if self._mic.is_recording():
-            return f" 🔴 REC {self._mic.elapsed():.0f}s — Ctrl+Alt+N to stop+transcribe"
-        err = self._mic.last_error()
-        if err:
-            return f" 🎙 Ctrl+Alt+N to record · last: {err}"
-        return " 🎙 Ctrl+Alt+N to record"
 
     async def start(self) -> None:
         from core.config import get_settings
@@ -105,8 +74,8 @@ class TUI:
             "  [dim]/memory[/dim]  — show memory\n"
             "  [dim]/agents[/dim]  — list agents\n"
             "  [dim]/model X[/dim] — switch model (haiku/sonnet/opus)\n"
-            "  [dim]/quit[/dim]    — exit\n"
-            "[dim]Ctrl+Alt+N[/dim] — push-to-talk (toggle mic → whisper → prompt)",
+            "  [dim]/rec [N][/dim]  — record N sec from mic (default 8) → whisper → prefill prompt\n"
+            "  [dim]/quit[/dim]    — exit",
             title="🔱",
         ))
 
@@ -117,9 +86,11 @@ class TUI:
 
         while True:
             try:
+                default = self._pending_voice_text or ""
+                self._pending_voice_text = None
                 user_input = await asyncio.get_event_loop().run_in_executor(
                     None,
-                    lambda: self.prompt_session.prompt(user_prompt),
+                    lambda d=default: self.prompt_session.prompt(user_prompt, default=d),
                 )
             except (EOFError, KeyboardInterrupt):
                 break
@@ -159,6 +130,7 @@ class TUI:
                 continue_session=self.claude_session_id is not None,
                 session_id=self.claude_session_id,
                 working_dir=settings.workspace_dir,
+                channel="cli",
             )
 
             # Run with streaming
@@ -240,6 +212,34 @@ class TUI:
             console.print("[dim]Usage: /model haiku|sonnet|opus[/dim]")
             return True
 
+        if command == "/rec":
+            try:
+                seconds = max(1, min(600, int(arg))) if arg else 8
+            except ValueError:
+                console.print("[dim]Usage: /rec [1-600] (default 8s, Ctrl+C to stop early)[/dim]")
+                return True
+            console.print(f"[red]🔴 recording {seconds}s...[/red] [dim](Ctrl+C aborts)[/dim]")
+            if not self._mic.start():
+                console.print(f"[red]mic start failed: {self._mic.last_error()}[/red]")
+                return True
+            try:
+                await asyncio.sleep(seconds)
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                self._mic.cancel()
+                console.print("[dim]aborted[/dim]")
+                return True
+            console.print("[dim]🎙 transcribing...[/dim]")
+            text = await asyncio.get_event_loop().run_in_executor(
+                None, self._mic.stop_and_transcribe
+            )
+            if text:
+                console.print(f"[green]→[/green] [italic]{text}[/italic]")
+                self._pending_voice_text = text
+                console.print("[dim](next prompt is prefilled — Enter to send, edit, or Ctrl+U to clear)[/dim]")
+            else:
+                console.print(f"[red]no transcript[/red] [dim]{self._mic.last_error() or ''}[/dim]")
+            return True
+
         if command == "/status":
             from monitoring.tracking import UsageTracker
             tracker = UsageTracker(db)
@@ -271,8 +271,8 @@ class TUI:
                 "/memory — show memory\n"
                 "/agents — list agents\n"
                 "/model X — switch model\n"
-                "/quit — exit\n"
-                "Ctrl+Alt+N — push-to-talk (mic → whisper → prompt)"
+                "/rec [N] — record N sec from mic → whisper → prefill prompt\n"
+                "/quit — exit"
             )
             return True
 
